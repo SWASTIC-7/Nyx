@@ -1,5 +1,10 @@
-# clean:
-# 	rm -rf build/*
+.PHONY: floppy_img bootloader kernel run clean
+
+run: floppy_img
+	qemu-system-x86_64 -fda build/main.img
+
+clean:
+	rm -rf build/*
 
 floppy_img: build/main.img
 build/main.img: bootloader kernel
