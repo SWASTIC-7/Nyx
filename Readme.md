@@ -50,7 +50,7 @@ Why this approach:
 - Tooling
   - Image builder scripts (place kernels/initrds/menus on images)
   - QEMU-friendly run/debug targets and GDB support
-  - Easy way to test Linux kernels (bzImage + initrd) or minimal test kernels
+  - Easy way to test Linux kernels (bzImage + initrd) or minimal test kernels   
 
 ## Minimal OS vs. Linux kernel testing
 
@@ -97,6 +97,22 @@ make usb DEVICE=/dev/sdX
 
 # Clean build artifacts
 make clean
+```
+
+## Dir structure
+```bash
+src/
+├── bootloader/
+│   ├── bootloader.asm
+│   ├── disk.asm
+│   ├── fat12.asm
+│   ├── fat32.asm
+│   └── print.asm
+├── kernel_asm/
+│   └── main.asm
+└── kernel_c/
+    ├── kernel.c
+    └── kernel_entry.asm
 ```
 
 ## Technical Details
