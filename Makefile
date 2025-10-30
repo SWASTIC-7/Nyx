@@ -59,3 +59,16 @@ run-asm: bootloader kernel_asm
 run-fat32: fat32
 	cp build/main_fat32.img build/main.img
 	qemu-system-x86_64 -fda build/main.img
+
+# Debug with GDB
+debug: floppy_img
+	@echo "target remote localhost:1234" > build/gdbcommands.txt
+	@echo "set architecture i8086" >> build/gdbcommands.txt
+	@echo "break *0x7c00" >> build/gdbcommands.txt
+	@echo "layout asm" >> build/gdbcommands.txt
+	@echo "layout regs" >> build/gdbcommands.txt
+	qemu-system-x86_64 -fda build/main.img -s -S
+
+# Connect GDB to debugging session
+gdb:
+	gdb -x build/gdbcommands.txt
