@@ -15,8 +15,9 @@ floppy_img: build/main_fat12.img
 fat12: build/main_fat12.img
 build/main_fat12.img: bootloader kernel_c
 	dd if=/dev/zero of=build/main_fat12.img bs=512 count=2880
-	mkfs.fat -F 12 -n "JAZZOS" build/main_fat12.img
-	dd if=build/bootloader.bin of=build/main_fat12.img conv=notrunc
+	mkfs.fat -F 12 -n "JAZZOS" -R 11 build/main_fat12.img
+	dd if=build/bootsector.bin of=build/main_fat12.img conv=notrunc bs=512 count=1
+	dd if=build/stage2.bin of=build/main_fat12.img conv=notrunc bs=512 seek=1
 	mcopy -i build/main_fat12.img build/kernel.bin "::kernel.bin"
 
 # FAT32 image (larger, 32MB)
@@ -28,8 +29,10 @@ build/main_fat32.img: bootloader kernel_c
 	mcopy -i build/main_fat32.img build/kernel.bin "::kernel.bin"
 
 bootloader: build/bootloader.bin
-build/bootloader.bin: src/bootloader/bootloader.asm src/bootloader/fat12.asm src/bootloader/fat32.asm src/bootloader/disk.asm src/bootloader/print.asm
-	nasm src/bootloader/bootloader.asm -f bin -o build/bootloader.bin
+build/bootloader.bin: src/bootloader/bootloader.asm src/bootloader/stage2.asm src/bootloader/fat12.asm src/bootloader/fat32.asm src/bootloader/disk.asm src/bootloader/print.asm
+	nasm src/bootloader/bootloader.asm -f bin -o build/bootsector.bin
+	nasm src/bootloader/stage2.asm -f bin -o build/stage2.bin
+	cat build/bootsector.bin build/stage2.bin > build/bootloader.bin
 
 # Assembly kernel (simple)
 kernel_asm: build/kernel_asm.bin

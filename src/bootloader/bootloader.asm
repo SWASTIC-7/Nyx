@@ -9,7 +9,7 @@ nop
 bdb_oem: db  'MSWIN4.1'
 bdb_bytes_per_sector: dw 512
 bdb_sectors_per_cluster: db 1
-bdb_reserved_sectors: dw 1
+bdb_reserved_sectors: dw 11
 bdb_fat_count: db 2
 bdb_dir_entires_count: dw 0E0h
 bdb_total_sectors: dw 2880
@@ -46,6 +46,7 @@ main:
     mov sp, 0x7C00
     
     mov [ebr_drive_number], dl
+    mov [0x7C00 + 0x24], dl  ; Also save at the BPB location
     
     ; Print boot message
     mov si, boot_message
@@ -54,13 +55,14 @@ main:
     ; Detect filesystem type
     call detect_filesystem
     
-    ; Load second stage bootloader
-    mov ax, 1
-    mov cl, 1
-    mov bx, 0x7E00
+    ; Load second stage bootloader (multiple sectors)
+    mov ax, 1           ; Start at LBA 1 (sector after boot sector)
+    mov cl, 10          ; Load 10 sectors (5KB) for stage2
+    mov bx, 0x7E00      ; Load to 0x7E00
     mov dl, [ebr_drive_number]
     call disk_read
     
+    ; Jump to second stage
     jmp 0x0000:0x7E00
 
 halt:
@@ -93,7 +95,7 @@ detect_filesystem:
 %include "src/bootloader/print.asm"
 
 ; Data
-boot_message: db "JazzOS Bootloader", 0x0D, 0x0A, 0
+boot_message: db "NYX", 0x0D, 0x0A, 0
 filesystem_type: db 0
 
 times 510-($-$$) db 0

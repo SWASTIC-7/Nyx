@@ -2,27 +2,36 @@
 
 ; Convert LBA to CHS
 ; Input: AX = LBA
-; Output: CX, DH = CHS values
+; Output: CX, DH = CHS values (CL = sector, CH = cylinder, DH = head)
 lba_to_chs:
-    push ax
+    ; Input: AX = LBA
+    ; Output: CH = cylinder (low 8 bits)
+    ;         CL = sector (1-based)
+    ;         DH = head
+    ; Preserve registers BX,CX,DX
+    push bx
+    push cx
     push dx
 
+    mov bx, 18        ; sectors per track
     xor dx, dx
-    div word [bdb_sectors_per_track]
-    inc dx
-    mov cx, dx
+    div bx            ; AX = track, DX = sector-1
+    inc dl            ; DL = sector (1-based)
+    push dx           ; save sector on stack
 
     xor dx, dx
-    div word [bdb_heads]
+    mov bx, 2         ; heads
+    div bx            ; AX = cylinder, DX = head
 
-    mov dh, dl
-    mov ch, al
-    shl ah, 6
-    or cl, ah
+    mov ch, al        ; CH = cylinder (low 8 bits)
+    mov dh, dl        ; DH = head
 
-    pop ax
-    mov dl, al
-    pop ax
+    pop dx            ; restore sector into DX
+    mov cl, dl        ; CL = sector
+
+    pop dx            ; restore original DX
+    pop cx
+    pop bx
     ret
 
 ; Read sectors from disk
@@ -34,18 +43,31 @@ disk_read:
     push dx
     push di
 
-    call lba_to_chs
-    mov ah, 0x02
-    mov di, 3
+    push cx         ; Save sector count (CL)
+    call lba_to_chs ; Returns CH=cylinder, CL=sector, DH=head
+                    ; Now CX has CH=cylinder, CL=sector number
+    pop ax          ; AL = original sector count
+    mov ah, 0x02    ; AH = BIOS read function
+    ; Now we need to swap: AL has count, but BIOS needs it in AL
+    ; and CL has sector number which is correct
+    ; So AX is now ready: AH=02h, AL=sector count
+    ; CX has CH=cylinder, CL=sector
+    ; DH has head
+    ; DL should have drive number (already set)
+    
+    mov di, 3       ; Retry count
 
 .retry:
+    pusha           ; Save all registers before BIOS call
     stc
     int 0x13
-    jnc .done
+    jc .check_retry
+    popa            ; Restore on success
+    jmp .done
 
-    call disk_reset
+.check_retry:
+    popa            ; Restore on failure
     dec di
-    test di, di
     jnz .retry
 
 .failed:
