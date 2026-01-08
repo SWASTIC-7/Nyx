@@ -1,10 +1,11 @@
-/* filepath: /home/nazr/Desktop/projects/x86_boot/src/kernel/linker.ld */
+/* Nyx Kernel Linker Script */
 OUTPUT_FORMAT("binary")
 ENTRY(_start)
 
+/* Kernel is loaded at 0x10000 (64KB mark) by the bootloader */
 SECTIONS
 {
-    . = 0x20000;
+    . = 0x10000;
     
     .text : {
         *(.text)

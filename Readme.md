@@ -2,12 +2,7 @@
 
 Do you know how an OS gets loaded onto bare metal? Let me explain to you how a bootloader is written from scratch. I will be writing an x86 bootloader, and my effort has been to explain this to a newbie — as I faced a lot of difficulty collecting resources and doing this project myself.
 
-**What you'll learn**
-- Boot process fundamentals: BIOS, MBR/VBR, and int 13h disk access
-- How a 2-stage bootloader is designed and implemented in assembly
-- How to enable A20, set up a GDT and switch to protected mode
-- How to load and transfer control to a C kernel (assembly + C integration)
-- Building, running, and debugging with `nasm`, `ld`, `gcc`, and `qemu`
+
 
 **Repository layout (where to look)**
 - Bootloader sources: [src/bootloader/bootloader.asm](src/bootloader/bootloader.asm)
@@ -22,7 +17,28 @@ Introduction
 
 Bootloaders are small programs that run immediately after firmware (BIOS or UEFI) hands off control. For BIOS-based PCs, the firmware reads 512 bytes from a boot device into memory at 0x7C00 and jumps to it. That 512-byte chunk must include a valid boot signature (0x55AA) and often contains just enough code to load a larger second-stage loader that implements more advanced features.
 
+```bash
+0x00000 ┌─────────────────────────┐
+        │ Interrupt Vector Table  │  1 KB
+0x00400 ├─────────────────────────┤
+        │ BIOS Data Area          │  256 B
+0x00500 ├─────────────────────────┤
+        │ Free (usable)           │  ~30 KB
+0x07C00 ├─────────────────────────┤
+        │ ★ YOUR BOOT SECTOR ★    │  512 B
+0x07E00 ├─────────────────────────┤
+        │ Free (stage2, kernel)   │  ~480 KB
+0x80000 ├─────────────────────────┤
+        │ EBDA (varies)           │
+0xA0000 ├─────────────────────────┤
+        │ Video RAM               │  128 KB
+0xC0000 ├─────────────────────────┤
+        │ Video BIOS / ROMs       │
+0xF0000 ├─────────────────────────┤
+        │ System BIOS ROM         │  64 KB
+0xFFFFF └─────────────────────────┘
 Designing a 2-stage BIOS bootloader
+```
 -----------------------------------
 
 Why two stages?
@@ -83,16 +99,11 @@ Kernel format & boot protocol
 - For simple custom kernels: define a small entry stub in assembly (`kernel_entry.asm`) that sets up C calling conventions and then calls `main()` in C (`kernel.c`).
 - For broader compatibility, implement multiboot / bzImage loading later. This repo focuses first on a small, test kernel so iteration is faster.
 
-Repository-specific notes: how Nyx is structured
-------------------------------------------------
-
-- `src/bootloader/bootloader.asm`: the boot sector and second-stage loader logic. Start here to understand how the first 512 bytes load the second stage.
-- `src/bootloader/disk.asm`: BIOS disk wrappers and helpers for reading sectors and handling retries.
-- `src/bootloader/fat12.asm` & `fat32.asm`: code to walk directories and locate kernel files on FAT-formatted images.
-- `src/bootloader/print.asm`: simple VGA text-mode printing routines used by the bootloader UI.
-- `src/kernel_asm/main.asm` and `src/kernel_c/kernel_entry.asm`: small assembly stubs to enter the kernel and switch to a C runtime environment.
-- `src/kernel_c/kernel.c`: minimal test kernel in C demonstrating basic output and hardware interaction.
-- `src/kernel_c/linker.ld`: controls symbol addresses for the kernel binary to match loader expectations.
+### Some tools You should know
+- Nasm
+- gdb
+- Makefile
+- Qemu
 
 Assembly + C integration
 ------------------------
@@ -183,159 +194,7 @@ Enjoy exploring and extending Nyx — bootloaders are small but fascinating syst
 
 ---
 *This README is now a developer-oriented blog and guide. For quick reference, the bootloader and kernel source live in the `src/` tree.*
-# Nyx
-### Advanced Dark-Themed Bootloader
 
-This repository focuses on building an advanced, dark-themed x86 bootloader. The operating system itself will remain intentionally minimal and only provide what is necessary to test the bootloader. The preferred long-term goal is for the bootloader to be able to boot real kernels (for example, Linux bzImage) and to interoperate with standard boot mechanisms (multiboot, GRUB chainloading), rather than to implement a full general-purpose OS.
-
-## Current Status
-
-Nyx is currently in active development with a working bootloader that loads and executes a custom kernel. The bootloader features a dark, modern interface with loading animations and status messages.
-
-
-## Vision
-
-Nyx aims to be a modern, lightweight operating system with:
-- **Dark aesthetic**: Beautiful dark UI throughout the entire system
-- **Performance**: Written in assembly and C for maximum efficiency
-- **Learning**: Fully documented for educational purposes
-- **Real hardware support**: Not just an emulator toy
-
-## Project Focus
-
-Primary objective: bootstrap real kernels reliably and provide a polished, extensible boot experience with a dark UI. The kernel used for functional testing will be minimal (a small, self-contained test kernel) or an upstream Linux kernel (bzImage/initrd) — whichever is most useful for validating bootloader features.
-
-Why this approach:
-- Concentrate effort on advanced bootloading: loading, relocating and starting kernels, handling initrd/cmdline, kernel format support.
-- Avoid reimplementing a full OS kernel. Keep the in-repo kernel minimal for quick iteration and testing.
-- Let existing kernels (Linux) handle higher-level OS functionality when needed.
-
-## Bootloader-features
-
-- Basic Bootloader: robust 512-byte boot sector with FAT12 support and readable UI (done / in progress)
-- Advanced Bootloader: larger second-stage bootloader
-  - A20 line handling
-  - Protected mode switch & GDT setup
-  - Advanced disk access (FAT12/32) and partition handling
-  - Kernel selection menu with dark-themed UI and animations
-- Kernel support & chainloading
-  - Multiboot support (load Multiboot-compliant kernels)
-  - Direct bzImage support (detect, relocate, decompress, set boot params)
-  - Initrd loading and kernel command line passing
-  - GRUB/chainload interoperability for complex setups
-- Hardware & UX
-  - Keyboard input driver for menu interaction
-  - Serial console for debugging
-  - VGA framebuffer splash (dark theme) and logo
-  - Simple theme configuration and fallback modes
-- Systems & security
-  - Optional UEFI stub / fallback (separate target)
-  - Optional secure boot integration for UEFI path
-  - Basic checksum / signature verification for kernels and initrd
-- Tooling
-  - Image builder scripts (place kernels/initrds/menus on images)
-  - QEMU-friendly run/debug targets and GDB support
-  - Easy way to test Linux kernels (bzImage + initrd) or minimal test kernels   
-
-## Minimal OS vs. Linux kernel testing
-
-Two supported testing modes:
-- Minimal test kernel: a tiny assembly/C kernel (keeps iteration fast). Useful when developing low-level bootloader features that don't require a full OS.
-- Linux kernel (preferred for full validation): the bootloader will aim to load a Linux bzImage and optional initrd, pass kernel cmdline, and boot it. This verifies real-world compatibility.
-
-Testing notes:
-- Multiboot kernels are easiest to test during early stages.
-- When bzImage support is ready, test with an actual vmlinuz and initramfs to validate kernel params, initrd loading, and module handling.
-
-## Building and Running (updated)
-
-Prerequisites: nasm, qemu-system-x86, mtools, make, a Linux kernel (vmlinuz) if testing bzImage.
-
-```bash
-# Ubuntu/Debian
-sudo apt install nasm qemu-system-x86 mtools make gcc
-
-# Arch Linux
-sudo pacman -S nasm qemu mtools make gcc
-
-# macOS (with Homebrew)
-brew install nasm qemu mtools make gcc
-```
-
-### Quick Start
-
-```bash
-# Build and run in QEMU
-make run
-
-# Build with debug symbols
-make debug
-
-# Run with GDB debugging
-make run-debug
-
-# Just build the floppy image
-make floppy_img
-
-# Create bootable USB (Linux only - be careful!)
-make usb DEVICE=/dev/sdX
-
-# Clean build artifacts
-make clean
-```
-
-## Dir structure
-```bash
-src/
-├── bootloader/
-│   ├── bootloader.asm
-│   ├── disk.asm
-│   ├── fat12.asm
-│   ├── fat32.asm
-│   └── print.asm
-├── kernel_asm/
-│   └── main.asm
-└── kernel_c/
-    ├── kernel.c
-    └── kernel_entry.asm
-```
-
-## Technical Details
-
-- **Target Architecture**: x86 (32-bit initially, 64-bit planned)
-- **Bootloader**: Custom two-stage bootloader
-- **Kernel Type**: Monolithic with modular drivers
-- **Filesystem**: FAT12/FAT32, ext2 planned
-- **Assembly**: NASM syntax
-- **Language**: Assembly + C (no C++ to keep it lightweight)
-- **Calling Convention**: cdecl
-- **Memory Model**: Higher-half kernel (0xC0000000+)
-
-## Design Philosophy
-
-1. **Minimalism**: Only include what's necessary
-2. **Performance**: Assembly where it matters, C for maintainability
-3. **Simplicity**: Clear and understandable code
-4. **Education**: Well-commented and documented code
-5. **Real Hardware**: Designed to run on actual x86 machines
-
-## Screenshots
-
-*Coming soon! We'll add screenshots of the boot process, kernel messages, and shell once the GUI is implemented.*
-
-## Testing on Real Hardware
-
-️ **Warning**: Testing on real hardware can be dangerous. Always backup your data!
-
-## References
-
-References taken to make this project
-
-- [OSDev Wiki](https://wiki.osdev.org/) - The Bible of OS development
-- [Writing my own Bootloader](https://dev.to/frosnerd/writing-my-own-boot-loader-3mld) - Medium Article
-- [The little book about OS development](https://littleosbook.github.io/)
-- [Bran's Kernel Development Tutorial](http://www.osdever.net/bkerndev/Docs/intro.htm)
-- [Video Tutorial by OliveStem](https://www.youtube.com/watch?v=yBO-EJoVDo0&list=PL2EF13wm-hWCoj6tUBGUmrkJmH1972dBB)
 
 ## Contributing
 
@@ -349,9 +208,6 @@ While this is primarily a learning project, contributions are welcome! Areas whe
 
 Please open an issue before starting major work to discuss your ideas.
 
-## License
-
-This project is open source and available under the MIT License for educational purposes.
 
 ## Acknowledgments
 
