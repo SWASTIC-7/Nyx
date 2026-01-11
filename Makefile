@@ -1,74 +1,84 @@
-.PHONY: floppy_img bootloader kernel kernel_asm kernel_c run clean fat12 fat32
+.PHONY: all run clean debug gdb
 
-# Default to C kernel with FAT12
-run: floppy_img
-	qemu-system-x86_64 -fda build/main.img
+# Directories
+BUILD_DIR = build
+SRC_DIR = src
 
-clean:
-	rm -rf build/*
+# Tools
+NASM = nasm
+GCC = gcc
+LD = ld
+QEMU = qemu-system-i386
 
-# Default to FAT12 with C kernel
-floppy_img: build/main_fat12.img
-	cp build/main_fat12.img build/main.img
+# Flags
+GCC_FLAGS = -m32 -ffreestanding -fno-pie -nostdlib -c -Wall -Wextra
+LD_FLAGS = -m elf_i386 -T $(SRC_DIR)/kernel_c/linker.ld --oformat binary
 
-# FAT12 image
-fat12: build/main_fat12.img
-build/main_fat12.img: bootloader kernel_c
-	dd if=/dev/zero of=build/main_fat12.img bs=512 count=2880
-	mkfs.fat -F 12 -n "JAZZOS" build/main_fat12.img
-	dd if=build/bootloader.bin of=build/main_fat12.img conv=notrunc
-	mcopy -i build/main_fat12.img build/kernel.bin "::kernel.bin"
+# Default target
+all: $(BUILD_DIR)/main.img
 
-# FAT32 image (larger, 32MB)
-fat32: build/main_fat32.img
-build/main_fat32.img: bootloader kernel_c
-	dd if=/dev/zero of=build/main_fat32.img bs=1M count=32
-	mkfs.fat -F 32 -n "JAZZOS" build/main_fat32.img
-	dd if=build/bootloader.bin of=build/main_fat32.img conv=notrunc
-	mcopy -i build/main_fat32.img build/kernel.bin "::kernel.bin"
-
-bootloader: build/bootloader.bin
-build/bootloader.bin: src/bootloader/bootloader.asm src/bootloader/fat12.asm src/bootloader/fat32.asm src/bootloader/disk.asm src/bootloader/print.asm
-	nasm src/bootloader/bootloader.asm -f bin -o build/bootloader.bin
-
-# Assembly kernel (simple)
-kernel_asm: build/kernel_asm.bin
-build/kernel_asm.bin: src/kernel_asm/main.asm
-	nasm src/kernel_asm/main.asm -f bin -o build/kernel_asm.bin
-
-# C kernel
-kernel_c: build/kernel.bin
-build/kernel.bin: src/kernel_c/kernel_entry.asm src/kernel_c/kernel.c
-	nasm src/kernel_c/kernel_entry.asm -f elf -o build/kernel_entry.o
-	gcc -m32 -ffreestanding -c src/kernel_c/kernel.c -o build/kernel.o -fno-pie -nostdlib
-	ld -m elf_i386 -Ttext 0x20000 --oformat binary -o build/kernel.bin build/kernel_entry.o build/kernel.o
-
-# Legacy target
-kernel: kernel_c
-
-# Test with assembly kernel
-run-asm: bootloader kernel_asm
-	dd if=/dev/zero of=build/main_fat12.img bs=512 count=2880
-	mkfs.fat -F 12 -n "JAZZOS" build/main_fat12.img
-	dd if=build/bootloader.bin of=build/main_fat12.img conv=notrunc
-	mcopy -i build/main_fat12.img build/kernel_asm.bin "::kernel.bin"
-	cp build/main_fat12.img build/main.img
-	qemu-system-x86_64 -fda build/main.img
-
-# Test with FAT32
-run-fat32: fat32
-	cp build/main_fat32.img build/main.img
-	qemu-system-x86_64 -fda build/main.img
+# Run in QEMU
+run: $(BUILD_DIR)/main.img
+	$(QEMU) -fda $(BUILD_DIR)/main.img
 
 # Debug with GDB
-debug: floppy_img
-	@echo "target remote localhost:1234" > build/gdbcommands.txt
-	@echo "set architecture i8086" >> build/gdbcommands.txt
-	@echo "break *0x7c00" >> build/gdbcommands.txt
-	@echo "layout asm" >> build/gdbcommands.txt
-	@echo "layout regs" >> build/gdbcommands.txt
-	qemu-system-x86_64 -fda build/main.img -s -S
+debug: $(BUILD_DIR)/main.img
+	$(QEMU) -fda $(BUILD_DIR)/main.img -s -S &
+	@echo "QEMU started. Connect GDB with: target remote localhost:1234"
 
-# Connect GDB to debugging session
 gdb:
-	gdb -x build/gdbcommands.txt
+	gdb -ex "target remote localhost:1234" -ex "set architecture i8086"
+
+clean:
+	rm -rf $(BUILD_DIR)/*
+
+# ============================================================================
+# Build Stage 1 Bootloader (512 bytes)
+# ============================================================================
+$(BUILD_DIR)/stage1.bin: $(SRC_DIR)/bootloader/stage1.asm
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f bin $< -o $@
+
+# ============================================================================
+# Build Stage 2 Bootloader
+# ============================================================================
+$(BUILD_DIR)/stage2.bin: $(SRC_DIR)/bootloader/stage2.asm
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f bin $< -o $@
+
+# ============================================================================
+# Build Kernel
+# ============================================================================
+$(BUILD_DIR)/kernel_entry.o: $(SRC_DIR)/kernel_c/kernel_entry.asm
+	@mkdir -p $(BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
+$(BUILD_DIR)/kernel.o: $(SRC_DIR)/kernel_c/kernel.c
+	@mkdir -p $(BUILD_DIR)
+	$(GCC) $(GCC_FLAGS) $< -o $@
+
+$(BUILD_DIR)/kernel.bin: $(BUILD_DIR)/kernel_entry.o $(BUILD_DIR)/kernel.o
+	$(LD) $(LD_FLAGS) $^ -o $@
+
+# ============================================================================
+# Create Floppy Image (simple layout - no FAT)
+# ============================================================================
+$(BUILD_DIR)/main.img: $(BUILD_DIR)/stage1.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/kernel.bin
+	@echo "Creating floppy image..."
+	# Create 1.44MB floppy image filled with zeros
+	dd if=/dev/zero of=$@ bs=512 count=2880 2>/dev/null
+	
+	# Write stage1 to sector 0 (boot sector)
+	dd if=$(BUILD_DIR)/stage1.bin of=$@ bs=512 count=1 conv=notrunc 2>/dev/null
+	
+	# Write stage2 to sector 1 (right after boot sector)
+	dd if=$(BUILD_DIR)/stage2.bin of=$@ bs=512 seek=1 conv=notrunc 2>/dev/null
+	
+	# Write kernel to sector 17 (after stage2's 16 sectors)
+	dd if=$(BUILD_DIR)/kernel.bin of=$@ bs=512 seek=17 conv=notrunc 2>/dev/null
+	
+	@echo ""
+	@echo "=== Image Layout ==="
+	@echo "  Sector 0:      Stage 1 (512 bytes)"
+	@echo "  Sectors 1-16:  Stage 2 (8KB)"
+	@echo "  Sectors 17+:   Kernel"
