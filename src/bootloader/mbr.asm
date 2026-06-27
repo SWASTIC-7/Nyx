@@ -1,46 +1,87 @@
+bits 16
+org 0x7C00
 
-bits 16                         ; CPU boots in 16-bit real mode
-org  0x7C00                     ; BIOS loaded us here; labels are absolute @ 0x7Cxx
+STAGE2_LBA     equ 1
+STAGE2_SECTORS equ 16
+STAGE2_ADDR    equ 0x7E00
 
 start:
-    cli                         ; no IRQs while the stack is half-built
-                                ; initialization
-    xor ax, ax                  ; AX = 0
-    mov ds, ax                  ; DS = 0  
-    mov es, ax                  ; ES = 0
-    mov ss, ax                  ; SS = 0
-    mov sp, 0x7C00              ; stack grows DOWN from 0x7C00 into free RAM
-    sti                         ; stack valid -> IRQs back on
+    cli
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, 0x7C00
+    sti
 
-    cld                         ; DF=0 -> LODSB advances SI forward
-    mov si, msg_hello
+    mov [drive], dl             ; BIOS passes the boot drive in DL
+
+    cld
+    mov si, msg_boot
     call print_string
 
-.hang:                          ; nothing left to do - stop cleanly
+    mov ah, 0x41                ; int 13h extensions installation check
+    mov bx, 0x55AA
+    mov dl, [drive]
+    int 0x13
+    jc  no_lba
+    cmp bx, 0xAA55              ; compliant BIOS swaps 55AA -> AA55
+    jne no_lba
+
+    mov ah, 0x42                ; extended read; params come from the DAP
+    mov dl, [drive]
+    mov si, dap
+    int 0x13
+    jc  disk_error
+
+    mov dl, [drive]             ; hand the boot drive to stage2
+    jmp 0x0000:STAGE2_ADDR
+
+no_lba:
+    mov si, msg_nolba
+    call print_string
+    jmp halt
+
+disk_error:
+    mov si, msg_diskerr
+    call print_string
+
+halt:
+    cli
     hlt
-    jmp .hang
+    jmp halt
 
 print_string:
     push ax
     push bx
     push si
-    mov  bh, 0                  ; video page 0
+    mov bh, 0
 .next:
-    lodsb                       ; AL = [DS:SI]; SI = SI + 1
-    test al, al                 ; hit the 0 terminator?
-    jz   .done
-    mov  ah, 0x0E              ; BIOS teletype output
-    int  0x10                  ; print AL, advance cursor
-    jmp  .next
+    lodsb
+    test al, al
+    jz .done
+    mov ah, 0x0E
+    int 0x10
+    jmp .next
 .done:
-    pop  si
-    pop  bx
-    pop  ax
+    pop si
+    pop bx
+    pop ax
     ret
 
-; ---- Data ------------------------------------------------------------------
-msg_hello: db 'Hello, NYX user!', 0x0D, 0x0A, 0   ; padded with 0x0D and 0x0A to tell where to stop
+drive: db 0
 
-; ---- Boot signature --------------------------------------------------------
-times 510-($-$$) db 0          ; pad with zeros up to byte 510
-dw 0xAA55                       ; bytes 55 AA at offsets 510,511 (little-endian)
+dap:
+    db 0x10                     ; DAP size
+    db 0
+    dw STAGE2_SECTORS           ; sectors to read
+    dw STAGE2_ADDR              ; buffer offset
+    dw 0x0000                   ; buffer segment
+    dq STAGE2_LBA              ; 64-bit starting LBA
+
+msg_boot:    db 'Nyx: loading stage2...', 0x0D, 0x0A, 0
+msg_nolba:   db 'No int13h LBA ext', 0x0D, 0x0A, 0
+msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
+
+times 510-($-$$) db 0
+dw 0xAA55
