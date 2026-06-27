@@ -25,7 +25,7 @@ Bootloaders are small programs that run immediately after firmware (BIOS or UEFI
 0x00500 ├─────────────────────────┤
         │ Free (usable)           │  ~30 KB
 0x07C00 ├─────────────────────────┤
-        │ ★ YOUR BOOT SECTOR ★    │  512 B
+        │ ★ YOUR BOOT SECTOR ★   │  512 B
 0x07E00 ├─────────────────────────┤
         │ Free (stage2, kernel)   │  ~480 KB
 0x80000 ├─────────────────────────┤
