@@ -17,8 +17,8 @@ bpb_root_entries:       dw 224
 bpb_total_sectors:      dw 2880
 bpb_media:              db 0xF0
 bpb_sectors_per_fat:    dw 9
-bpb_sectors_per_track:  dw 18
-bpb_heads:              dw 2
+bpb_sectors_per_track:  dw 0            ; CHS geometry - unused (LBA only)
+bpb_heads:              dw 0            ; CHS geometry - unused (LBA only)
 bpb_hidden_sectors:     dd 0
 bpb_large_sectors:      dd 0
 ebr_drive:              db 0
