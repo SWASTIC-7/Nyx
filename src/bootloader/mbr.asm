@@ -5,6 +5,29 @@ STAGE2_LBA     equ 1
 STAGE2_SECTORS equ 16
 STAGE2_ADDR    equ 0x7E00
 
+    jmp short start
+    nop
+
+bpb_oem:                db 'NYXOS1.0'
+bpb_bytes_per_sector:   dw 512
+bpb_sectors_per_cluster:db 1
+bpb_reserved_sectors:   dw 17           ; boot sector + 16 reserved for stage2
+bpb_num_fats:           db 2
+bpb_root_entries:       dw 224
+bpb_total_sectors:      dw 2880
+bpb_media:              db 0xF0
+bpb_sectors_per_fat:    dw 9
+bpb_sectors_per_track:  dw 18
+bpb_heads:              dw 2
+bpb_hidden_sectors:     dd 0
+bpb_large_sectors:      dd 0
+ebr_drive:              db 0
+ebr_reserved:           db 0
+ebr_signature:          db 0x29
+ebr_volid:              dd 0x12345678
+ebr_vollabel:           db 'NYX OS     '
+ebr_sysid:              db 'FAT12   '
+
 start:
     cli
     xor ax, ax
@@ -14,7 +37,7 @@ start:
     mov sp, 0x7C00
     sti
 
-    mov [drive], dl             ; BIOS passes the boot drive in DL
+    mov [drive], dl
 
     cld
     mov si, msg_boot
@@ -25,16 +48,16 @@ start:
     mov dl, [drive]
     int 0x13
     jc  no_lba
-    cmp bx, 0xAA55              ; compliant BIOS swaps 55AA -> AA55
+    cmp bx, 0xAA55
     jne no_lba
 
-    mov ah, 0x42                ; extended read; params come from the DAP
+    mov ah, 0x42                ; extended read of stage2 via the DAP
     mov dl, [drive]
     mov si, dap
     int 0x13
     jc  disk_error
 
-    mov dl, [drive]             ; hand the boot drive to stage2
+    mov dl, [drive]
     jmp 0x0000:STAGE2_ADDR
 
 no_lba:
@@ -72,12 +95,12 @@ print_string:
 drive: db 0
 
 dap:
-    db 0x10                     ; DAP size
+    db 0x10
     db 0
-    dw STAGE2_SECTORS           ; sectors to read
-    dw STAGE2_ADDR              ; buffer offset
-    dw 0x0000                   ; buffer segment
-    dq STAGE2_LBA              ; 64-bit starting LBA
+    dw STAGE2_SECTORS
+    dw STAGE2_ADDR
+    dw 0x0000
+    dq STAGE2_LBA
 
 msg_boot:    db 'Nyx: loading stage2...', 0x0D, 0x0A, 0
 msg_nolba:   db 'No int13h LBA ext', 0x0D, 0x0A, 0

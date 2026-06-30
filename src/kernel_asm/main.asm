@@ -11,7 +11,7 @@ start:
     int 0x10
     
     ; Setup segments
-    mov ax, 0x2000
+    mov ax, 0x1000
     mov ds, ax
     mov es, ax
     
