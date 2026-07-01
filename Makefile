@@ -2,7 +2,7 @@
 # Nyx bootloader - build & run
 # Run from the project root inside WSL:  make  |  make run  |  make clean
 # ============================================================================
-.PHONY: all run clean
+.PHONY: all run clean test
 
 BUILD_DIR := build
 SRC_DIR   := src/bootloader
@@ -15,11 +15,11 @@ all: $(BUILD_DIR)/disk.img
 
 $(BUILD_DIR)/mbr.bin: $(SRC_DIR)/mbr.asm
 	mkdir -p $(BUILD_DIR)
-	$(NASM) -f bin $< -o $@
+	$(NASM) -f bin $< -o $@ -l $(BUILD_DIR)/mbr.lst
 
 $(BUILD_DIR)/stage2.bin: $(SRC_DIR)/stage2.asm $(SRC_DIR)/fat12.asm
 	mkdir -p $(BUILD_DIR)
-	$(NASM) -f bin -I $(SRC_DIR)/ $< -o $@
+	$(NASM) -f bin -I $(SRC_DIR)/ $< -o $@ -l $(BUILD_DIR)/stage2.lst
 
 $(BUILD_DIR)/kernel.bin: $(KSRC_DIR)/main.asm
 	mkdir -p $(BUILD_DIR)
@@ -35,6 +35,11 @@ $(BUILD_DIR)/disk.img: $(BUILD_DIR)/mbr.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)
 
 run: $(BUILD_DIR)/disk.img
 	$(QEMU) -drive format=raw,file=$(BUILD_DIR)/disk.img
+
+# Run both test layers: static image checks, then runtime checkpoint checks
+test: all
+	python3 tests/check_image.py
+	python3 tests/run_checkpoints.py
 
 clean:
 	rm -rf $(BUILD_DIR)

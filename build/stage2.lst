@@ -1,0 +1,216 @@
+     1                                  bits 16
+     2                                  org 0x7E00
+     3                                  
+     4                                  KERNEL_SEG equ 0x1000
+     5                                  
+     6                                  stage2_start:
+     7 00000000 8816[6200]                  mov [drive], dl
+     8 00000004 31C0                        xor ax, ax
+     9 00000006 8ED8                        mov ds, ax
+    10 00000008 8EC0                        mov es, ax
+    11                                  
+    12 0000000A FC                          cld
+    13 0000000B BE[7300]                    mov si, msg_stage2
+    14 0000000E E83900                      call print_string
+    15                                  
+    16 00000011 E8B700                      call fat12_load_kernel
+    17                                  
+    18 00000014 BE[A200]                    mov si, msg_jump
+    19 00000017 E83000                      call print_string
+    20 0000001A EA00000010                  jmp KERNEL_SEG:0x0000
+    21                                  
+    22                                  ; read CX sectors from LBA AX into ES:BX
+    23                                  read_sectors:
+    24 0000001F 890E[6500]                  mov [dap_count], cx
+    25 00000023 891E[6700]                  mov [dap_off], bx
+    26 00000027 8C06[6900]                  mov [dap_seg], es
+    27 0000002B A3[6B00]                    mov [dap_lba], ax
+    28 0000002E C706[6D00]0000              mov word [dap_lba+2], 0
+    29 00000034 B442                        mov ah, 0x42
+    30 00000036 8A16[6200]                  mov dl, [drive]
+    31 0000003A BE[6300]                    mov si, dap
+    32 0000003D CD13                        int 0x13
+    33 0000003F 7201                        jc .fail
+    34 00000041 C3                          ret
+    35                                  .fail:
+    36 00000042 BE[B900]                    mov si, msg_diskerr
+    37 00000045 E80200                      call print_string
+    38 00000048 EB14                        jmp halt
+    39                                  
+    40                                  print_string:
+    41 0000004A 50                          push ax
+    42 0000004B 53                          push bx
+    43 0000004C 56                          push si
+    44 0000004D B700                        mov bh, 0
+    45                                  .next:
+    46 0000004F AC                          lodsb
+    47 00000050 84C0                        test al, al
+    48 00000052 7406                        jz .done
+    49 00000054 B40E                        mov ah, 0x0E
+    50 00000056 CD10                        int 0x10
+    51 00000058 EBF5                        jmp .next
+    52                                  .done:
+    53 0000005A 5E                          pop si
+    54 0000005B 5B                          pop bx
+    55 0000005C 58                          pop ax
+    56 0000005D C3                          ret
+    57                                  
+    58                                  halt:
+    59 0000005E FA                          cli
+    60 0000005F F4                          hlt
+    61 00000060 EBFC                        jmp halt
+    62                                  
+    63 00000062 00                      drive: db 0
+    64                                  
+    65                                  dap:
+    66 00000063 10                          db 0x10
+    67 00000064 00                          db 0
+    68 00000065 0000                    dap_count: dw 0
+    69 00000067 0000                    dap_off:   dw 0
+    70 00000069 0000                    dap_seg:   dw 0
+    71 0000006B 00000000                dap_lba:   dd 0
+    72 0000006F 00000000                           dd 0
+    73                                  
+    74 00000073 537461676520322072-     msg_stage2:  db 'Stage 2 running, loading kernel via FAT12...', 0x0D, 0x0A, 0
+    74 0000007C 756E6E696E672C206C-
+    74 00000085 6F6164696E67206B65-
+    74 0000008E 726E656C2076696120-
+    74 00000097 46415431322E2E2E0D-
+    74 000000A0 0A00               
+    75 000000A2 4A756D70696E672074-     msg_jump:    db 'Jumping to kernel...', 0x0D, 0x0A, 0
+    75 000000AB 6F206B65726E656C2E-
+    75 000000B4 2E2E0D0A00         
+    76 000000B9 4469736B2072656164-     msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
+    76 000000C2 206572726F720D0A00 
+    77                                  
+    78                                  %include "fat12.asm"
+     1                              <1> ; FAT12 driver - reads BPB from the resident boot sector at 0x7C00,
+     2                              <1> ; finds KERNEL.BIN in the root directory, follows its cluster chain
+     3                              <1> ; and loads it to KERNEL_SEG:0000.
+     4                              <1> 
+     5                              <1> BPB          equ 0x7C00
+     6                              <1> bpb_bps      equ BPB+0x0B               ; bytes per sector
+     7                              <1> bpb_spc      equ BPB+0x0D               ; sectors per cluster
+     8                              <1> bpb_reserved equ BPB+0x0E
+     9                              <1> bpb_numfats  equ BPB+0x10
+    10                              <1> bpb_rootent  equ BPB+0x11
+    11                              <1> bpb_spf      equ BPB+0x16               ; sectors per FAT
+    12                              <1> 
+    13                              <1> FAT_BUF equ 0x0500                       ; FAT #1 loaded here
+    14                              <1> DIR_BUF equ 0x2000                       ; root directory loaded here
+    15                              <1> 
+    16                              <1> fat12_load_kernel:
+    17 000000CB A10E7C              <1>     mov ax, [bpb_reserved]
+    18 000000CE A3[B001]            <1>     mov [fat_start], ax
+    19                              <1> 
+    20 000000D1 A0107C              <1>     mov al, [bpb_numfats]
+    21 000000D4 30E4                <1>     xor ah, ah
+    22 000000D6 8B0E167C            <1>     mov cx, [bpb_spf]
+    23 000000DA F7E1                <1>     mul cx                               ; numfats * sectors_per_fat
+    24 000000DC 0306[B001]          <1>     add ax, [fat_start]
+    25 000000E0 A3[B201]            <1>     mov [root_start], ax
+    26                              <1> 
+    27 000000E3 A1117C              <1>     mov ax, [bpb_rootent]
+    28 000000E6 B92000              <1>     mov cx, 32
+    29 000000E9 F7E1                <1>     mul cx                               ; root_entries * 32 bytes
+    30 000000EB 03060B7C            <1>     add ax, [bpb_bps]
+    31 000000EF 48                  <1>     dec ax
+    32 000000F0 31D2                <1>     xor dx, dx
+    33 000000F2 F7360B7C            <1>     div word [bpb_bps]                   ; ceil(dir bytes / bytes_per_sector)
+    34 000000F6 A3[B401]            <1>     mov [root_sectors], ax
+    35                              <1> 
+    36 000000F9 0306[B201]          <1>     add ax, [root_start]
+    37 000000FD A3[B601]            <1>     mov [data_start], ax
+    38                              <1> 
+    39 00000100 31C0                <1>     xor ax, ax
+    40 00000102 8EC0                <1>     mov es, ax
+    41 00000104 A1[B001]            <1>     mov ax, [fat_start]
+    42 00000107 8B0E167C            <1>     mov cx, [bpb_spf]
+    43 0000010B BB0005              <1>     mov bx, FAT_BUF
+    44 0000010E E80EFF              <1>     call read_sectors
+    45                              <1> 
+    46 00000111 A1[B201]            <1>     mov ax, [root_start]
+    47 00000114 8B0E[B401]          <1>     mov cx, [root_sectors]
+    48 00000118 BB0020              <1>     mov bx, DIR_BUF
+    49 0000011B E801FF              <1>     call read_sectors
+    50                              <1> 
+    51 0000011E BF0020              <1>     mov di, DIR_BUF
+    52 00000121 8B16117C            <1>     mov dx, [bpb_rootent]
+    53                              <1> .scan:
+    54 00000125 803D00              <1>     cmp byte [di], 0x00                  ; 0x00 = end of directory
+    55 00000128 7417                <1>     je .notfound
+    56 0000012A 803DE5              <1>     cmp byte [di], 0xE5                  ; 0xE5 = deleted entry
+    57 0000012D 740C                <1>     je .next
+    58 0000012F BE[A501]            <1>     mov si, kernel_name
+    59 00000132 B90B00              <1>     mov cx, 11
+    60 00000135 57                  <1>     push di
+    61 00000136 F3A6                <1>     repe cmpsb
+    62 00000138 5F                  <1>     pop di
+    63 00000139 740F                <1>     je .found
+    64                              <1> .next:
+    65 0000013B 83C720              <1>     add di, 32
+    66 0000013E 4A                  <1>     dec dx
+    67 0000013F 75E4                <1>     jnz .scan
+    68                              <1> .notfound:
+    69 00000141 BE[BA01]            <1>     mov si, msg_nokernel
+    70 00000144 E803FF              <1>     call print_string
+    71 00000147 E914FF              <1>     jmp halt
+    72                              <1> .found:
+    73 0000014A 8B451A              <1>     mov ax, [di+26]                      ; first cluster (low word)
+    74                              <1> 
+    75                              <1> .load:
+    76 0000014D 50                  <1>     push ax
+    77 0000014E 83E802              <1>     sub ax, 2
+    78 00000151 31C9                <1>     xor cx, cx
+    79 00000153 8A0E0D7C            <1>     mov cl, [bpb_spc]
+    80 00000157 F7E1                <1>     mul cx                               ; (cluster-2) * sectors_per_cluster
+    81 00000159 0306[B601]          <1>     add ax, [data_start]
+    82 0000015D BB0010              <1>     mov bx, KERNEL_SEG
+    83 00000160 8EC3                <1>     mov es, bx
+    84 00000162 8B1E[B801]          <1>     mov bx, [load_off]
+    85 00000166 31C9                <1>     xor cx, cx
+    86 00000168 8A0E0D7C            <1>     mov cl, [bpb_spc]
+    87 0000016C E8B0FE              <1>     call read_sectors
+    88 0000016F C1E109              <1>     shl cx, 9                            ; cluster size in bytes
+    89 00000172 010E[B801]          <1>     add [load_off], cx
+    90 00000176 58                  <1>     pop ax
+    91 00000177 E80800              <1>     call fat12_next
+    92 0000017A 3DF80F              <1>     cmp ax, 0x0FF8                        ; >= 0xFF8 = end of chain
+    93 0000017D 7302                <1>     jae .done
+    94 0000017F EBCC                <1>     jmp .load
+    95                              <1> .done:
+    96 00000181 C3                  <1>     ret
+    97                              <1> 
+    98                              <1> ; next cluster in chain: AX = current cluster -> AX = next (12-bit)
+    99                              <1> fat12_next:
+   100 00000182 53                  <1>     push bx
+   101 00000183 51                  <1>     push cx
+   102 00000184 52                  <1>     push dx
+   103 00000185 89C3                <1>     mov bx, ax
+   104 00000187 89C1                <1>     mov cx, ax
+   105 00000189 D1E9                <1>     shr cx, 1
+   106 0000018B 01CB                <1>     add bx, cx                           ; offset = cluster + cluster/2
+   107 0000018D 8B970005            <1>     mov dx, [FAT_BUF + bx]
+   108 00000191 A90100              <1>     test ax, 1
+   109 00000194 7405                <1>     jz .even
+   110 00000196 C1EA04              <1>     shr dx, 4                            ; odd cluster -> high 12 bits
+   111 00000199 EB04                <1>     jmp .store
+   112                              <1> .even:
+   113 0000019B 81E2FF0F            <1>     and dx, 0x0FFF                       ; even cluster -> low 12 bits
+   114                              <1> .store:
+   115 0000019F 89D0                <1>     mov ax, dx
+   116 000001A1 5A                  <1>     pop dx
+   117 000001A2 59                  <1>     pop cx
+   118 000001A3 5B                  <1>     pop bx
+   119 000001A4 C3                  <1>     ret
+   120                              <1> 
+   121 000001A5 4B45524E454C202042- <1> kernel_name:  db 'KERNEL  BIN'
+   121 000001AE 494E                <1>
+   122 000001B0 0000                <1> fat_start:    dw 0
+   123 000001B2 0000                <1> root_start:   dw 0
+   124 000001B4 0000                <1> root_sectors: dw 0
+   125 000001B6 0000                <1> data_start:   dw 0
+   126 000001B8 0000                <1> load_off:     dw 0
+   127 000001BA 4B45524E454C2E4249- <1> msg_nokernel: db 'KERNEL.BIN not found', 0x0D, 0x0A, 0
+   127 000001C3 4E206E6F7420666F75- <1>
+   127 000001CC 6E640D0A00          <1>
