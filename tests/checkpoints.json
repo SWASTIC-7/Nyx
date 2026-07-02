@@ -18,6 +18,12 @@
     ]
   },
   {
+    "name": "a20_enabled",
+    "label": "gdt_install",
+    "note": "enable_a20 ran and verified A20 via the 1 MB alias test",
+    "asserts": [ { "mem8": "a20_enabled", "eq": 1 } ]
+  },
+  {
     "name": "kernel_loaded_at_0x10000",
     "addr": "0x10000",
     "note": "bootloader jumped to the kernel; the file must be resident",

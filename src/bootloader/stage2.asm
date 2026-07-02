@@ -17,7 +17,8 @@ stage2_start:
 
     call fat_detect
     call menu_main                       ; loads the chosen kernel to KERNEL_SEG:0
-    call gdt_install                     ; point the CPU at our GDT (protected-mode prep)
+    call enable_a20                      ; unlock memory above 1 MB (protected-mode prep)
+    call gdt_install                     ; point the CPU at our GDT
     jmp KERNEL_SEG:0x0000
 
 ; detect filesystem: set [fat_is32], [partition_start], [bpb_ptr]
@@ -120,3 +121,4 @@ msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
 %include "fat32.asm"
 %include "menu.asm"
 %include "gdt.asm"
+%include "a20.asm"
