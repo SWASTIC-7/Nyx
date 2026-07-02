@@ -24,6 +24,16 @@
     "asserts": [ { "mem8": "a20_enabled", "eq": 1 } ]
   },
   {
+    "name": "e820_collected",
+    "label": "gdt_install",
+    "note": "get_e820 collected the BIOS memory map (QEMU default 128 MB = 6 regions)",
+    "asserts": [
+      { "mem16": "e820_count", "eq": 6 },
+      { "mem16": "e820_map", "offset": 0,  "eq": 0 },
+      { "mem16": "e820_map", "offset": 16, "eq": 1 }
+    ]
+  },
+  {
     "name": "kernel_loaded_at_0x10000",
     "addr": "0x10000",
     "note": "bootloader jumped to the kernel; the file must be resident",
