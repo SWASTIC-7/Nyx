@@ -1,0 +1,135 @@
+     1                                  bits 16
+     2                                  org 0x7C00
+     3                                  
+     4                                  STAGE2_LBA     equ 1
+     5                                  STAGE2_SECTORS equ 16
+     6                                  STAGE2_ADDR    equ 0x7E00
+     7                                  
+     8                                  P1_START       equ 2048         ; partition 1 start (LBA), 40 MB
+     9                                  P1_SECTORS     equ 81920
+    10                                  P2_START       equ 2048 + 81920 ; partition 2 start (right after P1)
+    11                                  P2_SECTORS     equ 81920
+    12                                  
+    13                                  %ifndef FAT32
+    14                                      jmp short start
+    15                                      nop
+    16                                  
+    17                                  bpb_oem:                db 'NYXOS1.0'
+    18                                  bpb_bytes_per_sector:   dw 512
+    19                                  bpb_sectors_per_cluster:db 1
+    20                                  bpb_reserved_sectors:   dw 17
+    21                                  bpb_num_fats:           db 2
+    22                                  bpb_root_entries:       dw 224
+    23                                  bpb_total_sectors:      dw 2880
+    24                                  bpb_media:              db 0xF0
+    25                                  bpb_sectors_per_fat:    dw 9
+    26                                  bpb_sectors_per_track:  dw 0            ; CHS geometry - unused (LBA only)
+    27                                  bpb_heads:              dw 0            ; CHS geometry - unused (LBA only)
+    28                                  bpb_hidden_sectors:     dd 0
+    29                                  bpb_large_sectors:      dd 0
+    30                                  ebr_drive:              db 0
+    31                                  ebr_reserved:           db 0
+    32                                  ebr_signature:          db 0x29
+    33                                  ebr_volid:              dd 0x12345678
+    34                                  ebr_vollabel:           db 'NYX OS     '
+    35                                  ebr_sysid:              db 'FAT12   '
+    36                                  %endif
+    37                                  
+    38                                  start:
+    39 00000000 FA                          cli
+    40 00000001 31C0                        xor ax, ax
+    41 00000003 8ED8                        mov ds, ax
+    42 00000005 8EC0                        mov es, ax
+    43 00000007 8ED0                        mov ss, ax
+    44 00000009 BC007C                      mov sp, 0x7C00
+    45 0000000C FB                          sti
+    46                                  
+    47 0000000D 8816[6700]                  mov [drive], dl
+    48                                  
+    49 00000011 FC                          cld
+    50 00000012 BE[7800]                    mov si, msg_boot
+    51 00000015 E83B00                      call print_string
+    52                                  
+    53 00000018 B441                        mov ah, 0x41                ; int 13h extensions installation check
+    54 0000001A BBAA55                      mov bx, 0x55AA
+    55 0000001D 8A16[6700]                  mov dl, [drive]
+    56 00000021 CD13                        int 0x13
+    57 00000023 721C                        jc  no_lba
+    58 00000025 81FB55AA                    cmp bx, 0xAA55
+    59 00000029 7516                        jne no_lba
+    60                                  
+    61 0000002B B442                        mov ah, 0x42                ; extended read of stage2 via the DAP
+    62 0000002D 8A16[6700]                  mov dl, [drive]
+    63 00000031 BE[6800]                    mov si, dap
+    64 00000034 CD13                        int 0x13
+    65 00000036 7211                        jc  disk_error
+    66                                  
+    67 00000038 8A16[6700]                  mov dl, [drive]
+    68 0000003C EA007E0000                  jmp 0x0000:STAGE2_ADDR
+    69                                  
+    70                                  no_lba:
+    71 00000041 BE[9100]                    mov si, msg_nolba
+    72 00000044 E80C00                      call print_string
+    73 00000047 EB06                        jmp halt
+    74                                  
+    75                                  disk_error:
+    76 00000049 BE[A500]                    mov si, msg_diskerr
+    77 0000004C E80400                      call print_string
+    78                                  
+    79                                  halt:
+    80 0000004F FA                          cli
+    81 00000050 F4                          hlt
+    82 00000051 EBFC                        jmp halt
+    83                                  
+    84                                  print_string:
+    85 00000053 50                          push ax
+    86 00000054 53                          push bx
+    87 00000055 56                          push si
+    88 00000056 B700                        mov bh, 0
+    89                                  .next:
+    90 00000058 AC                          lodsb
+    91 00000059 84C0                        test al, al
+    92 0000005B 7406                        jz .done
+    93 0000005D B40E                        mov ah, 0x0E
+    94 0000005F CD10                        int 0x10
+    95 00000061 EBF5                        jmp .next
+    96                                  .done:
+    97 00000063 5E                          pop si
+    98 00000064 5B                          pop bx
+    99 00000065 58                          pop ax
+   100 00000066 C3                          ret
+   101                                  
+   102 00000067 00                      drive: db 0
+   103                                  
+   104                                  dap:
+   105 00000068 10                          db 0x10
+   106 00000069 00                          db 0
+   107 0000006A 1000                        dw STAGE2_SECTORS
+   108 0000006C 007E                        dw STAGE2_ADDR
+   109 0000006E 0000                        dw 0x0000
+   110 00000070 0100000000000000            dq STAGE2_LBA
+   111                                  
+   112 00000078 4E79783A206C6F6164-     msg_boot:    db 'Nyx: loading stage2...', 0x0D, 0x0A, 0
+   112 00000081 696E67207374616765-
+   112 0000008A 322E2E2E0D0A00     
+   113 00000091 4E6F20696E74313368-     msg_nolba:   db 'No int13h LBA ext', 0x0D, 0x0A, 0
+   113 0000009A 204C4241206578740D-
+   113 000000A3 0A00               
+   114 000000A5 4469736B2072656164-     msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
+   114 000000AE 206572726F720D0A00 
+   115                                  
+   116                                  %ifdef FAT32
+   117 000000B7 00<rep 107h>                times 0x1BE-($-$$) db 0      ; pad up to the partition table
+   118 000001BE 80000000                    db 0x80, 0x00, 0x00, 0x00    ; partition 1: active, CHS start (unused)
+   119 000001C2 0C000000                    db 0x0C, 0x00, 0x00, 0x00    ; type 0x0C = FAT32 LBA, CHS end (unused)
+   120 000001C6 00080000                    dd P1_START
+   121 000001CA 00400100                    dd P1_SECTORS
+   122 000001CE 00000000                    db 0x00, 0x00, 0x00, 0x00    ; partition 2: inactive
+   123 000001D2 0C000000                    db 0x0C, 0x00, 0x00, 0x00    ; type 0x0C = FAT32 LBA
+   124 000001D6 00480100                    dd P2_START
+   125 000001DA 00400100                    dd P2_SECTORS
+   126 000001DE 00<rep 20h>                 times 32 db 0                ; partition entries 3-4 (empty)
+   127                                  %else
+   128                                      times 510-($-$$) db 0
+   129                                  %endif
+   130 000001FE 55AA                    dw 0xAA55

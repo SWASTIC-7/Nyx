@@ -5,13 +5,19 @@ STAGE2_LBA     equ 1
 STAGE2_SECTORS equ 16
 STAGE2_ADDR    equ 0x7E00
 
+P1_START       equ 2048         ; partition 1 start (LBA), 40 MB
+P1_SECTORS     equ 81920
+P2_START       equ 2048 + 81920 ; partition 2 start (right after P1)
+P2_SECTORS     equ 81920
+
+%ifndef FAT32
     jmp short start
     nop
 
 bpb_oem:                db 'NYXOS1.0'
 bpb_bytes_per_sector:   dw 512
 bpb_sectors_per_cluster:db 1
-bpb_reserved_sectors:   dw 17           ; boot sector + 16 reserved for stage2
+bpb_reserved_sectors:   dw 17
 bpb_num_fats:           db 2
 bpb_root_entries:       dw 224
 bpb_total_sectors:      dw 2880
@@ -27,6 +33,7 @@ ebr_signature:          db 0x29
 ebr_volid:              dd 0x12345678
 ebr_vollabel:           db 'NYX OS     '
 ebr_sysid:              db 'FAT12   '
+%endif
 
 start:
     cli
@@ -106,5 +113,18 @@ msg_boot:    db 'Nyx: loading stage2...', 0x0D, 0x0A, 0
 msg_nolba:   db 'No int13h LBA ext', 0x0D, 0x0A, 0
 msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
 
-times 510-($-$$) db 0
+%ifdef FAT32
+    times 0x1BE-($-$$) db 0      ; pad up to the partition table
+    db 0x80, 0x00, 0x00, 0x00    ; partition 1: active, CHS start (unused)
+    db 0x0C, 0x00, 0x00, 0x00    ; type 0x0C = FAT32 LBA, CHS end (unused)
+    dd P1_START
+    dd P1_SECTORS
+    db 0x00, 0x00, 0x00, 0x00    ; partition 2: inactive
+    db 0x0C, 0x00, 0x00, 0x00    ; type 0x0C = FAT32 LBA
+    dd P2_START
+    dd P2_SECTORS
+    times 32 db 0                ; partition entries 3-4 (empty)
+%else
+    times 510-($-$$) db 0
+%endif
 dw 0xAA55

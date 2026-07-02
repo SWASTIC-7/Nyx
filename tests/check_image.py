@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-# Layer 1 - static checks on the built disk image (no emulator needed).
-# Verifies the FAT12 on-disk layout matches our design and that KERNEL.BIN
-# is placed exactly where the bootloader will look for it.
+# Layer 1 - static checks on a built disk image (no emulator needed).
+# Auto-detects FAT12 (VBR in sector 0) vs FAT32 (MBR + partition) and verifies
+# the on-disk layout matches our design, and that KERNEL.BIN is placed where the
+# bootloader will look for it.
 import struct, sys, math
 
 FAILS = 0
@@ -13,70 +14,106 @@ def check(name, cond, detail=""):
 def u16(b, o): return struct.unpack_from("<H", b, o)[0]
 def u32(b, o): return struct.unpack_from("<I", b, o)[0]
 
-img  = open("build/disk.img", "rb").read()
-kern = open("build/kernel.bin", "rb").read()
+img_path  = sys.argv[1] if len(sys.argv) > 1 else "build/disk.img"
+kern_path = sys.argv[2] if len(sys.argv) > 2 else "build/kernel.bin"
+part_idx  = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+img  = open(img_path, "rb").read()
+kern = open(kern_path, "rb").read()
+print(f"# checking {img_path} (partition {part_idx}, kernel {kern_path})")
 
-# ---- boot signature ----
 check("boot signature 0x55AA @510", img[510:512] == b"\x55\xAA", img[510:512].hex())
 
-# ---- BPB fields ----
-bps      = u16(img, 0x0B)
-spc      = img[0x0D]
-reserved = u16(img, 0x0E)
-nfats    = img[0x10]
-rootent  = u16(img, 0x11)
-spf      = u16(img, 0x16)
-check("bytes/sector == 512",   bps == 512,      f"={bps}")
-check("sectors/cluster == 1",  spc == 1,        f"={spc}")
-check("reserved == 17",        reserved == 17,  f"={reserved}")
-check("num FATs == 2",         nfats == 2,      f"={nfats}")
-check("root entries == 224",   rootent == 224,  f"={rootent}")
-check("sectors/FAT == 9",      spf == 9,        f"={spf}")
+pe = 0x1BE + part_idx * 16
+part_type = img[pe + 4]
+is_fat32  = part_type != 0
 
-# ---- region math ----
-fat_start    = reserved
-root_start   = reserved + nfats * spf
-root_sectors = math.ceil(rootent * 32 / bps)
-data_start   = root_start + root_sectors
-check("fat_start == 17",  fat_start == 17,   f"={fat_start}")
-check("root_start == 35", root_start == 35,  f"={root_start}")
-check("data_start == 49", data_start == 49,  f"={data_start}")
+def sec(lba, n=1): return img[lba*512:(lba+n)*512]
 
-# ---- FAT #1, decode 12-bit entries ----
-fat = img[fat_start * bps : (fat_start + spf) * bps]
-def fat12(n):
-    o = n + (n >> 1)
-    w = fat[o] | (fat[o + 1] << 8)
-    return (w & 0x0FFF) if n % 2 == 0 else (w >> 4)
+def scan_dir(entries):
+    for i in range(0, len(entries), 32):
+        e = entries[i:i+32]
+        if e[0] == 0x00: return None
+        if e[0] == 0xE5: continue
+        if e[0:11] == b"KERNEL  BIN":
+            first = (u16(e, 0x14) << 16) | u16(e, 0x1A)
+            return first, u32(e, 28)
+    return None
 
-# ---- scan root directory for KERNEL.BIN ----
-root = img[root_start * bps : (root_start + root_sectors) * bps]
-first = size = None
-for i in range(0, len(root), 32):
-    e = root[i:i+32]
-    if e[0] == 0x00: break
-    if e[0] == 0xE5: continue
-    if e[0:11] == b"KERNEL  BIN":
-        first, size = u16(e, 26), u32(e, 28)
-        break
+if not is_fat32:
+    # ---------- FAT12 ----------
+    bps, spc = u16(img, 0x0B), img[0x0D]
+    reserved, nfats = u16(img, 0x0E), img[0x10]
+    rootent, spf = u16(img, 0x11), u16(img, 0x16)
+    check("FAT12: reserved == 17", reserved == 17, f"={reserved}")
+    check("FAT12: sectors/FAT == 9", spf == 9, f"={spf}")
 
-check("KERNEL.BIN found in root dir", first is not None)
-if first is not None:
-    check("first cluster == 2", first == 2, f"={first}")
-    check("size == 1536",       size == 1536, f"={size}")
+    fat_start = reserved
+    root_start = reserved + nfats * spf
+    root_sectors = math.ceil(rootent * 32 / bps)
+    data_start = root_start + root_sectors
+    check("fat_start == 17", fat_start == 17, f"={fat_start}")
+    check("data_start == 49", data_start == 49, f"={data_start}")
 
-    chain, c, guard = [], first, 0
-    while c < 0xFF8 and guard < 1000:
-        chain.append(c); c = fat12(c); guard += 1
-    check("cluster chain == [2, 3, 4]", chain == [2, 3, 4], f"chain={chain}")
-    check("chain ends at EOC (>=0xFF8)", c >= 0xFF8, f"0x{c:03X}")
+    fat = sec(fat_start, spf)
+    def nxt(n):
+        o = n + (n >> 1); w = fat[o] | (fat[o+1] << 8)
+        return (w & 0x0FFF) if n % 2 == 0 else (w >> 4)
+    eoc = 0xFF8
+    found = scan_dir(sec(root_start, root_sectors))
+    expect_first = 2
+else:
+    # ---------- FAT32 ----------
+    pstart = u32(img, pe + 8)
+    check("MBR partition type == 0x0C", part_type == 0x0C, hex(part_type))
+    check("partition start LBA is set", pstart >= 2048, f"={pstart}")
 
-    data = b""
-    for cl in chain:
-        lba = data_start + (cl - 2) * spc
-        data += img[lba * bps : (lba + spc) * bps]
+    b = pstart * 512           # byte offset of the partition VBR
+    bps, spc = u16(img, b+0x0B), img[b+0x0D]
+    reserved, nfats = u16(img, b+0x0E), img[b+0x10]
+    spf16, spf = u16(img, b+0x16), u32(img, b+0x24)
+    rootclus = u32(img, b+0x2C)
+    check("FAT32: spf16 == 0 (is FAT32)", spf16 == 0, f"={spf16}")
+    check("FAT32: reserved == 32", reserved == 32, f"={reserved}")
+
+    fat_start = pstart + reserved
+    data_start = pstart + reserved + nfats * spf
+    check("fat_start == pstart + reserved", fat_start == pstart + reserved, f"={fat_start}")
+    check("data_start > fat_start", data_start > fat_start, f"={data_start}")
+
+    def nxt(n):
+        o = n*4; s = fat_start + o//512
+        return u32(sec(s), o % 512) & 0x0FFFFFFF
+    eoc = 0x0FFFFFF8
+    def clus_lba(c): return data_start + (c-2)*spc
+    # root dir is a cluster chain
+    found, c = None, rootclus
+    for _ in range(64):
+        found = scan_dir(sec(clus_lba(c), spc))
+        if found is not None: break
+        c = nxt(c)
+        if c >= eoc: break
+    expect_first = 3
+
+check("KERNEL.BIN found", found is not None)
+if found is not None:
+    first, size = found
+    check(f"first cluster == {expect_first}", first == expect_first, f"={first}")
+    expect_size = len(kern)
+    expect_clusters = math.ceil(expect_size / (spc * 512))
+    check(f"size == {expect_size}", size == expect_size, f"={size}")
+
+    chain, c = [], first
+    while c < eoc and len(chain) < 1000:
+        chain.append(c); c = nxt(c)
+    check(f"chain length == {expect_clusters}", len(chain) == expect_clusters, f"chain={chain}")
+    check("chain ends at EOC", c >= eoc, f"0x{c:X}")
+
+    if not is_fat32:
+        data = b"".join(sec(data_start + (cl-2)*spc, spc) for cl in chain)
+    else:
+        data = b"".join(sec(data_start + (cl-2)*spc, spc) for cl in chain)
     check("kernel bytes on disk == kernel.bin", data[:len(kern)] == kern,
-          f"{len(data)} bytes vs {len(kern)}")
+          f"{len(data)} vs {len(kern)}")
 
 print()
 if FAILS:

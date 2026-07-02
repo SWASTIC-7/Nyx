@@ -3,6 +3,10 @@ org 0x7E00
 
 KERNEL_SEG equ 0x1000
 
+%ifndef BOOT_PART
+%define BOOT_PART 0                      ; which MBR partition to boot (0-3)
+%endif
+
 stage2_start:
     mov [drive], dl
     xor ax, ax
@@ -13,13 +17,46 @@ stage2_start:
     mov si, msg_stage2
     call print_string
 
-    call fat12_load_kernel
+    call fat_detect
 
     mov si, msg_jump
     call print_string
     jmp KERNEL_SEG:0x0000
 
-; read CX sectors from LBA AX into ES:BX
+; locate the BPB (sector 0, or the VBR of a partition) and pick the driver
+fat_detect:
+    mov al, [0x7C00 + 0x1BE + (BOOT_PART*16) + 4]   ; selected partition's type
+    test al, al
+    jz .novbr
+    mov eax, [0x7C00 + 0x1BE + (BOOT_PART*16) + 8]  ; its start LBA
+    mov [partition_start], eax
+    xor bx, bx
+    mov es, bx
+    mov bx, VBR_BUF
+    mov cx, 1
+    call read_sectors32                 ; load the partition's VBR (its BPB)
+    mov word [bpb_ptr], VBR_BUF
+    jmp .decide
+.novbr:
+    xor eax, eax
+    mov [partition_start], eax
+    mov word [bpb_ptr], 0x7C00
+.decide:
+    mov bx, [bpb_ptr]
+    mov ax, [bx+0x16]                   ; sectors_per_fat_16 == 0 -> FAT32
+    test ax, ax
+    jz .fat32
+    mov si, msg_fat12
+    call print_string
+    call fat12_load_kernel
+    ret
+.fat32:
+    mov si, msg_fat32
+    call print_string
+    call fat32_load_kernel
+    ret
+
+; read CX sectors from LBA AX into ES:BX (16-bit LBA, used by fat12)
 read_sectors:
     mov [dap_count], cx
     mov [dap_off], bx
@@ -71,8 +108,11 @@ dap_seg:   dw 0
 dap_lba:   dd 0
            dd 0
 
-msg_stage2:  db 'Stage 2 running, loading kernel via FAT12...', 0x0D, 0x0A, 0
+msg_stage2:  db 'Stage 2 running, detecting filesystem...', 0x0D, 0x0A, 0
+msg_fat12:   db 'FAT12 detected, loading kernel...', 0x0D, 0x0A, 0
+msg_fat32:   db 'FAT32 detected, loading kernel...', 0x0D, 0x0A, 0
 msg_jump:    db 'Jumping to kernel...', 0x0D, 0x0A, 0
 msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
 
 %include "fat12.asm"
+%include "fat32.asm"

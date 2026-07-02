@@ -3,87 +3,131 @@
      3                                  
      4                                  KERNEL_SEG equ 0x1000
      5                                  
-     6                                  stage2_start:
-     7 00000000 8816[6200]                  mov [drive], dl
-     8 00000004 31C0                        xor ax, ax
-     9 00000006 8ED8                        mov ds, ax
-    10 00000008 8EC0                        mov es, ax
-    11                                  
-    12 0000000A FC                          cld
-    13 0000000B BE[7300]                    mov si, msg_stage2
-    14 0000000E E83900                      call print_string
+     6                                  %ifndef BOOT_PART
+     7                                  %define BOOT_PART 0                      ; which MBR partition to boot (0-3)
+     8                                  %endif
+     9                                  
+    10                                  stage2_start:
+    11 00000000 8816[B200]                  mov [drive], dl
+    12 00000004 31C0                        xor ax, ax
+    13 00000006 8ED8                        mov ds, ax
+    14 00000008 8EC0                        mov es, ax
     15                                  
-    16 00000011 E8B700                      call fat12_load_kernel
-    17                                  
-    18 00000014 BE[A200]                    mov si, msg_jump
-    19 00000017 E83000                      call print_string
-    20 0000001A EA00000010                  jmp KERNEL_SEG:0x0000
+    16 0000000A FC                          cld
+    17 0000000B BE[C300]                    mov si, msg_stage2
+    18 0000000E E88900                      call print_string
+    19                                  
+    20 00000011 E80B00                      call fat_detect
     21                                  
-    22                                  ; read CX sectors from LBA AX into ES:BX
-    23                                  read_sectors:
-    24 0000001F 890E[6500]                  mov [dap_count], cx
-    25 00000023 891E[6700]                  mov [dap_off], bx
-    26 00000027 8C06[6900]                  mov [dap_seg], es
-    27 0000002B A3[6B00]                    mov [dap_lba], ax
-    28 0000002E C706[6D00]0000              mov word [dap_lba+2], 0
-    29 00000034 B442                        mov ah, 0x42
-    30 00000036 8A16[6200]                  mov dl, [drive]
-    31 0000003A BE[6300]                    mov si, dap
-    32 0000003D CD13                        int 0x13
-    33 0000003F 7201                        jc .fail
-    34 00000041 C3                          ret
-    35                                  .fail:
-    36 00000042 BE[B900]                    mov si, msg_diskerr
-    37 00000045 E80200                      call print_string
-    38 00000048 EB14                        jmp halt
-    39                                  
-    40                                  print_string:
-    41 0000004A 50                          push ax
-    42 0000004B 53                          push bx
-    43 0000004C 56                          push si
-    44 0000004D B700                        mov bh, 0
-    45                                  .next:
-    46 0000004F AC                          lodsb
-    47 00000050 84C0                        test al, al
-    48 00000052 7406                        jz .done
-    49 00000054 B40E                        mov ah, 0x0E
-    50 00000056 CD10                        int 0x10
-    51 00000058 EBF5                        jmp .next
-    52                                  .done:
-    53 0000005A 5E                          pop si
-    54 0000005B 5B                          pop bx
-    55 0000005C 58                          pop ax
-    56 0000005D C3                          ret
-    57                                  
-    58                                  halt:
-    59 0000005E FA                          cli
-    60 0000005F F4                          hlt
-    61 00000060 EBFC                        jmp halt
-    62                                  
-    63 00000062 00                      drive: db 0
-    64                                  
-    65                                  dap:
-    66 00000063 10                          db 0x10
-    67 00000064 00                          db 0
-    68 00000065 0000                    dap_count: dw 0
-    69 00000067 0000                    dap_off:   dw 0
-    70 00000069 0000                    dap_seg:   dw 0
-    71 0000006B 00000000                dap_lba:   dd 0
-    72 0000006F 00000000                           dd 0
-    73                                  
-    74 00000073 537461676520322072-     msg_stage2:  db 'Stage 2 running, loading kernel via FAT12...', 0x0D, 0x0A, 0
-    74 0000007C 756E6E696E672C206C-
-    74 00000085 6F6164696E67206B65-
-    74 0000008E 726E656C2076696120-
-    74 00000097 46415431322E2E2E0D-
-    74 000000A0 0A00               
-    75 000000A2 4A756D70696E672074-     msg_jump:    db 'Jumping to kernel...', 0x0D, 0x0A, 0
-    75 000000AB 6F206B65726E656C2E-
-    75 000000B4 2E2E0D0A00         
-    76 000000B9 4469736B2072656164-     msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
-    76 000000C2 206572726F720D0A00 
-    77                                  
-    78                                  %include "fat12.asm"
+    22 00000014 BE[3601]                    mov si, msg_jump
+    23 00000017 E88000                      call print_string
+    24 0000001A EA00000010                  jmp KERNEL_SEG:0x0000
+    25                                  
+    26                                  ; locate the BPB (sector 0, or the VBR of a partition) and pick the driver
+    27                                  fat_detect:
+    28 0000001F A0C27D                      mov al, [0x7C00 + 0x1BE + (BOOT_PART*16) + 4]   ; selected partition's type
+    29 00000022 84C0                        test al, al
+    30 00000024 741D                        jz .novbr
+    31 00000026 66A1C67D                    mov eax, [0x7C00 + 0x1BE + (BOOT_PART*16) + 8]  ; its start LBA
+    32 0000002A 66A3[F803]                  mov [partition_start], eax
+    33 0000002E 31DB                        xor bx, bx
+    34 00000030 8EC3                        mov es, bx
+    35 00000032 BB0006                      mov bx, VBR_BUF
+    36 00000035 B90100                      mov cx, 1
+    37 00000038 E82A02                      call read_sectors32                 ; load the partition's VBR (its BPB)
+    38 0000003B C706[FC03]0006              mov word [bpb_ptr], VBR_BUF
+    39 00000041 EB0D                        jmp .decide
+    40                                  .novbr:
+    41 00000043 6631C0                      xor eax, eax
+    42 00000046 66A3[F803]                  mov [partition_start], eax
+    43 0000004A C706[FC03]007C              mov word [bpb_ptr], 0x7C00
+    44                                  .decide:
+    45 00000050 8B1E[FC03]                  mov bx, [bpb_ptr]
+    46 00000054 8B4716                      mov ax, [bx+0x16]                   ; sectors_per_fat_16 == 0 -> FAT32
+    47 00000057 85C0                        test ax, ax
+    48 00000059 740A                        jz .fat32
+    49 0000005B BE[EE00]                    mov si, msg_fat12
+    50 0000005E E83900                      call print_string
+    51 00000061 E8FB00                      call fat12_load_kernel
+    52 00000064 C3                          ret
+    53                                  .fat32:
+    54 00000065 BE[1201]                    mov si, msg_fat32
+    55 00000068 E82F00                      call print_string
+    56 0000006B E87D02                      call fat32_load_kernel
+    57 0000006E C3                          ret
+    58                                  
+    59                                  ; read CX sectors from LBA AX into ES:BX (16-bit LBA, used by fat12)
+    60                                  read_sectors:
+    61 0000006F 890E[B500]                  mov [dap_count], cx
+    62 00000073 891E[B700]                  mov [dap_off], bx
+    63 00000077 8C06[B900]                  mov [dap_seg], es
+    64 0000007B A3[BB00]                    mov [dap_lba], ax
+    65 0000007E C706[BD00]0000              mov word [dap_lba+2], 0
+    66 00000084 B442                        mov ah, 0x42
+    67 00000086 8A16[B200]                  mov dl, [drive]
+    68 0000008A BE[B300]                    mov si, dap
+    69 0000008D CD13                        int 0x13
+    70 0000008F 7201                        jc .fail
+    71 00000091 C3                          ret
+    72                                  .fail:
+    73 00000092 BE[4D01]                    mov si, msg_diskerr
+    74 00000095 E80200                      call print_string
+    75 00000098 EB14                        jmp halt
+    76                                  
+    77                                  print_string:
+    78 0000009A 50                          push ax
+    79 0000009B 53                          push bx
+    80 0000009C 56                          push si
+    81 0000009D B700                        mov bh, 0
+    82                                  .next:
+    83 0000009F AC                          lodsb
+    84 000000A0 84C0                        test al, al
+    85 000000A2 7406                        jz .done
+    86 000000A4 B40E                        mov ah, 0x0E
+    87 000000A6 CD10                        int 0x10
+    88 000000A8 EBF5                        jmp .next
+    89                                  .done:
+    90 000000AA 5E                          pop si
+    91 000000AB 5B                          pop bx
+    92 000000AC 58                          pop ax
+    93 000000AD C3                          ret
+    94                                  
+    95                                  halt:
+    96 000000AE FA                          cli
+    97 000000AF F4                          hlt
+    98 000000B0 EBFC                        jmp halt
+    99                                  
+   100 000000B2 00                      drive: db 0
+   101                                  
+   102                                  dap:
+   103 000000B3 10                          db 0x10
+   104 000000B4 00                          db 0
+   105 000000B5 0000                    dap_count: dw 0
+   106 000000B7 0000                    dap_off:   dw 0
+   107 000000B9 0000                    dap_seg:   dw 0
+   108 000000BB 00000000                dap_lba:   dd 0
+   109 000000BF 00000000                           dd 0
+   110                                  
+   111 000000C3 537461676520322072-     msg_stage2:  db 'Stage 2 running, detecting filesystem...', 0x0D, 0x0A, 0
+   111 000000CC 756E6E696E672C2064-
+   111 000000D5 6574656374696E6720-
+   111 000000DE 66696C657379737465-
+   111 000000E7 6D2E2E2E0D0A00     
+   112 000000EE 464154313220646574-     msg_fat12:   db 'FAT12 detected, loading kernel...', 0x0D, 0x0A, 0
+   112 000000F7 65637465642C206C6F-
+   112 00000100 6164696E67206B6572-
+   112 00000109 6E656C2E2E2E0D0A00 
+   113 00000112 464154333220646574-     msg_fat32:   db 'FAT32 detected, loading kernel...', 0x0D, 0x0A, 0
+   113 0000011B 65637465642C206C6F-
+   113 00000124 6164696E67206B6572-
+   113 0000012D 6E656C2E2E2E0D0A00 
+   114 00000136 4A756D70696E672074-     msg_jump:    db 'Jumping to kernel...', 0x0D, 0x0A, 0
+   114 0000013F 6F206B65726E656C2E-
+   114 00000148 2E2E0D0A00         
+   115 0000014D 4469736B2072656164-     msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
+   115 00000156 206572726F720D0A00 
+   116                                  
+   117                                  %include "fat12.asm"
      1                              <1> ; FAT12 driver - reads BPB from the resident boot sector at 0x7C00,
      2                              <1> ; finds KERNEL.BIN in the root directory, follows its cluster chain
      3                              <1> ; and loads it to KERNEL_SEG:0000.
@@ -100,117 +144,292 @@
     14                              <1> DIR_BUF equ 0x2000                       ; root directory loaded here
     15                              <1> 
     16                              <1> fat12_load_kernel:
-    17 000000CB A10E7C              <1>     mov ax, [bpb_reserved]
-    18 000000CE A3[B001]            <1>     mov [fat_start], ax
+    17 0000015F A10E7C              <1>     mov ax, [bpb_reserved]
+    18 00000162 A3[4402]            <1>     mov [fat_start], ax
     19                              <1> 
-    20 000000D1 A0107C              <1>     mov al, [bpb_numfats]
-    21 000000D4 30E4                <1>     xor ah, ah
-    22 000000D6 8B0E167C            <1>     mov cx, [bpb_spf]
-    23 000000DA F7E1                <1>     mul cx                               ; numfats * sectors_per_fat
-    24 000000DC 0306[B001]          <1>     add ax, [fat_start]
-    25 000000E0 A3[B201]            <1>     mov [root_start], ax
+    20 00000165 A0107C              <1>     mov al, [bpb_numfats]
+    21 00000168 30E4                <1>     xor ah, ah
+    22 0000016A 8B0E167C            <1>     mov cx, [bpb_spf]
+    23 0000016E F7E1                <1>     mul cx                               ; numfats * sectors_per_fat
+    24 00000170 0306[4402]          <1>     add ax, [fat_start]
+    25 00000174 A3[4602]            <1>     mov [root_start], ax
     26                              <1> 
-    27 000000E3 A1117C              <1>     mov ax, [bpb_rootent]
-    28 000000E6 B92000              <1>     mov cx, 32
-    29 000000E9 F7E1                <1>     mul cx                               ; root_entries * 32 bytes
-    30 000000EB 03060B7C            <1>     add ax, [bpb_bps]
-    31 000000EF 48                  <1>     dec ax
-    32 000000F0 31D2                <1>     xor dx, dx
-    33 000000F2 F7360B7C            <1>     div word [bpb_bps]                   ; ceil(dir bytes / bytes_per_sector)
-    34 000000F6 A3[B401]            <1>     mov [root_sectors], ax
+    27 00000177 A1117C              <1>     mov ax, [bpb_rootent]
+    28 0000017A B92000              <1>     mov cx, 32
+    29 0000017D F7E1                <1>     mul cx                               ; root_entries * 32 bytes
+    30 0000017F 03060B7C            <1>     add ax, [bpb_bps]
+    31 00000183 48                  <1>     dec ax
+    32 00000184 31D2                <1>     xor dx, dx
+    33 00000186 F7360B7C            <1>     div word [bpb_bps]                   ; ceil(dir bytes / bytes_per_sector)
+    34 0000018A A3[4802]            <1>     mov [root_sectors], ax
     35                              <1> 
-    36 000000F9 0306[B201]          <1>     add ax, [root_start]
-    37 000000FD A3[B601]            <1>     mov [data_start], ax
+    36 0000018D 0306[4602]          <1>     add ax, [root_start]
+    37 00000191 A3[4A02]            <1>     mov [data_start], ax
     38                              <1> 
-    39 00000100 31C0                <1>     xor ax, ax
-    40 00000102 8EC0                <1>     mov es, ax
-    41 00000104 A1[B001]            <1>     mov ax, [fat_start]
-    42 00000107 8B0E167C            <1>     mov cx, [bpb_spf]
-    43 0000010B BB0005              <1>     mov bx, FAT_BUF
-    44 0000010E E80EFF              <1>     call read_sectors
+    39 00000194 31C0                <1>     xor ax, ax
+    40 00000196 8EC0                <1>     mov es, ax
+    41 00000198 A1[4402]            <1>     mov ax, [fat_start]
+    42 0000019B 8B0E167C            <1>     mov cx, [bpb_spf]
+    43 0000019F BB0005              <1>     mov bx, FAT_BUF
+    44 000001A2 E8CAFE              <1>     call read_sectors
     45                              <1> 
-    46 00000111 A1[B201]            <1>     mov ax, [root_start]
-    47 00000114 8B0E[B401]          <1>     mov cx, [root_sectors]
-    48 00000118 BB0020              <1>     mov bx, DIR_BUF
-    49 0000011B E801FF              <1>     call read_sectors
+    46 000001A5 A1[4602]            <1>     mov ax, [root_start]
+    47 000001A8 8B0E[4802]          <1>     mov cx, [root_sectors]
+    48 000001AC BB0020              <1>     mov bx, DIR_BUF
+    49 000001AF E8BDFE              <1>     call read_sectors
     50                              <1> 
-    51 0000011E BF0020              <1>     mov di, DIR_BUF
-    52 00000121 8B16117C            <1>     mov dx, [bpb_rootent]
+    51 000001B2 BF0020              <1>     mov di, DIR_BUF
+    52 000001B5 8B16117C            <1>     mov dx, [bpb_rootent]
     53                              <1> .scan:
-    54 00000125 803D00              <1>     cmp byte [di], 0x00                  ; 0x00 = end of directory
-    55 00000128 7417                <1>     je .notfound
-    56 0000012A 803DE5              <1>     cmp byte [di], 0xE5                  ; 0xE5 = deleted entry
-    57 0000012D 740C                <1>     je .next
-    58 0000012F BE[A501]            <1>     mov si, kernel_name
-    59 00000132 B90B00              <1>     mov cx, 11
-    60 00000135 57                  <1>     push di
-    61 00000136 F3A6                <1>     repe cmpsb
-    62 00000138 5F                  <1>     pop di
-    63 00000139 740F                <1>     je .found
+    54 000001B9 803D00              <1>     cmp byte [di], 0x00                  ; 0x00 = end of directory
+    55 000001BC 7417                <1>     je .notfound
+    56 000001BE 803DE5              <1>     cmp byte [di], 0xE5                  ; 0xE5 = deleted entry
+    57 000001C1 740C                <1>     je .next
+    58 000001C3 BE[3902]            <1>     mov si, kernel_name
+    59 000001C6 B90B00              <1>     mov cx, 11
+    60 000001C9 57                  <1>     push di
+    61 000001CA F3A6                <1>     repe cmpsb
+    62 000001CC 5F                  <1>     pop di
+    63 000001CD 740F                <1>     je .found
     64                              <1> .next:
-    65 0000013B 83C720              <1>     add di, 32
-    66 0000013E 4A                  <1>     dec dx
-    67 0000013F 75E4                <1>     jnz .scan
+    65 000001CF 83C720              <1>     add di, 32
+    66 000001D2 4A                  <1>     dec dx
+    67 000001D3 75E4                <1>     jnz .scan
     68                              <1> .notfound:
-    69 00000141 BE[BA01]            <1>     mov si, msg_nokernel
-    70 00000144 E803FF              <1>     call print_string
-    71 00000147 E914FF              <1>     jmp halt
+    69 000001D5 BE[4E02]            <1>     mov si, msg_nokernel
+    70 000001D8 E8BFFE              <1>     call print_string
+    71 000001DB E9D0FE              <1>     jmp halt
     72                              <1> .found:
-    73 0000014A 8B451A              <1>     mov ax, [di+26]                      ; first cluster (low word)
+    73 000001DE 8B451A              <1>     mov ax, [di+26]                      ; first cluster (low word)
     74                              <1> 
     75                              <1> .load:
-    76 0000014D 50                  <1>     push ax
-    77 0000014E 83E802              <1>     sub ax, 2
-    78 00000151 31C9                <1>     xor cx, cx
-    79 00000153 8A0E0D7C            <1>     mov cl, [bpb_spc]
-    80 00000157 F7E1                <1>     mul cx                               ; (cluster-2) * sectors_per_cluster
-    81 00000159 0306[B601]          <1>     add ax, [data_start]
-    82 0000015D BB0010              <1>     mov bx, KERNEL_SEG
-    83 00000160 8EC3                <1>     mov es, bx
-    84 00000162 8B1E[B801]          <1>     mov bx, [load_off]
-    85 00000166 31C9                <1>     xor cx, cx
-    86 00000168 8A0E0D7C            <1>     mov cl, [bpb_spc]
-    87 0000016C E8B0FE              <1>     call read_sectors
-    88 0000016F C1E109              <1>     shl cx, 9                            ; cluster size in bytes
-    89 00000172 010E[B801]          <1>     add [load_off], cx
-    90 00000176 58                  <1>     pop ax
-    91 00000177 E80800              <1>     call fat12_next
-    92 0000017A 3DF80F              <1>     cmp ax, 0x0FF8                        ; >= 0xFF8 = end of chain
-    93 0000017D 7302                <1>     jae .done
-    94 0000017F EBCC                <1>     jmp .load
+    76 000001E1 50                  <1>     push ax
+    77 000001E2 83E802              <1>     sub ax, 2
+    78 000001E5 31C9                <1>     xor cx, cx
+    79 000001E7 8A0E0D7C            <1>     mov cl, [bpb_spc]
+    80 000001EB F7E1                <1>     mul cx                               ; (cluster-2) * sectors_per_cluster
+    81 000001ED 0306[4A02]          <1>     add ax, [data_start]
+    82 000001F1 BB0010              <1>     mov bx, KERNEL_SEG
+    83 000001F4 8EC3                <1>     mov es, bx
+    84 000001F6 8B1E[4C02]          <1>     mov bx, [load_off]
+    85 000001FA 31C9                <1>     xor cx, cx
+    86 000001FC 8A0E0D7C            <1>     mov cl, [bpb_spc]
+    87 00000200 E86CFE              <1>     call read_sectors
+    88 00000203 C1E109              <1>     shl cx, 9                            ; cluster size in bytes
+    89 00000206 010E[4C02]          <1>     add [load_off], cx
+    90 0000020A 58                  <1>     pop ax
+    91 0000020B E80800              <1>     call fat12_next
+    92 0000020E 3DF80F              <1>     cmp ax, 0x0FF8                        ; >= 0xFF8 = end of chain
+    93 00000211 7302                <1>     jae .done
+    94 00000213 EBCC                <1>     jmp .load
     95                              <1> .done:
-    96 00000181 C3                  <1>     ret
+    96 00000215 C3                  <1>     ret
     97                              <1> 
     98                              <1> ; next cluster in chain: AX = current cluster -> AX = next (12-bit)
     99                              <1> fat12_next:
-   100 00000182 53                  <1>     push bx
-   101 00000183 51                  <1>     push cx
-   102 00000184 52                  <1>     push dx
-   103 00000185 89C3                <1>     mov bx, ax
-   104 00000187 89C1                <1>     mov cx, ax
-   105 00000189 D1E9                <1>     shr cx, 1
-   106 0000018B 01CB                <1>     add bx, cx                           ; offset = cluster + cluster/2
-   107 0000018D 8B970005            <1>     mov dx, [FAT_BUF + bx]
-   108 00000191 A90100              <1>     test ax, 1
-   109 00000194 7405                <1>     jz .even
-   110 00000196 C1EA04              <1>     shr dx, 4                            ; odd cluster -> high 12 bits
-   111 00000199 EB04                <1>     jmp .store
+   100 00000216 53                  <1>     push bx
+   101 00000217 51                  <1>     push cx
+   102 00000218 52                  <1>     push dx
+   103 00000219 89C3                <1>     mov bx, ax
+   104 0000021B 89C1                <1>     mov cx, ax
+   105 0000021D D1E9                <1>     shr cx, 1
+   106 0000021F 01CB                <1>     add bx, cx                           ; offset = cluster + cluster/2
+   107 00000221 8B970005            <1>     mov dx, [FAT_BUF + bx]
+   108 00000225 A90100              <1>     test ax, 1
+   109 00000228 7405                <1>     jz .even
+   110 0000022A C1EA04              <1>     shr dx, 4                            ; odd cluster -> high 12 bits
+   111 0000022D EB04                <1>     jmp .store
    112                              <1> .even:
-   113 0000019B 81E2FF0F            <1>     and dx, 0x0FFF                       ; even cluster -> low 12 bits
+   113 0000022F 81E2FF0F            <1>     and dx, 0x0FFF                       ; even cluster -> low 12 bits
    114                              <1> .store:
-   115 0000019F 89D0                <1>     mov ax, dx
-   116 000001A1 5A                  <1>     pop dx
-   117 000001A2 59                  <1>     pop cx
-   118 000001A3 5B                  <1>     pop bx
-   119 000001A4 C3                  <1>     ret
+   115 00000233 89D0                <1>     mov ax, dx
+   116 00000235 5A                  <1>     pop dx
+   117 00000236 59                  <1>     pop cx
+   118 00000237 5B                  <1>     pop bx
+   119 00000238 C3                  <1>     ret
    120                              <1> 
-   121 000001A5 4B45524E454C202042- <1> kernel_name:  db 'KERNEL  BIN'
-   121 000001AE 494E                <1>
-   122 000001B0 0000                <1> fat_start:    dw 0
-   123 000001B2 0000                <1> root_start:   dw 0
-   124 000001B4 0000                <1> root_sectors: dw 0
-   125 000001B6 0000                <1> data_start:   dw 0
-   126 000001B8 0000                <1> load_off:     dw 0
-   127 000001BA 4B45524E454C2E4249- <1> msg_nokernel: db 'KERNEL.BIN not found', 0x0D, 0x0A, 0
-   127 000001C3 4E206E6F7420666F75- <1>
-   127 000001CC 6E640D0A00          <1>
+   121 00000239 4B45524E454C202042- <1> kernel_name:  db 'KERNEL  BIN'
+   121 00000242 494E                <1>
+   122 00000244 0000                <1> fat_start:    dw 0
+   123 00000246 0000                <1> root_start:   dw 0
+   124 00000248 0000                <1> root_sectors: dw 0
+   125 0000024A 0000                <1> data_start:   dw 0
+   126 0000024C 0000                <1> load_off:     dw 0
+   127 0000024E 4B45524E454C2E4249- <1> msg_nokernel: db 'KERNEL.BIN not found', 0x0D, 0x0A, 0
+   127 00000257 4E206E6F7420666F75- <1>
+   127 00000260 6E640D0A00          <1>
+   118                                  %include "fat32.asm"
+     1                              <1> ; FAT32 driver. BPB lives in the partition VBR (located by fat_detect), all
+     2                              <1> ; sectors are absolute LBAs (partition_start already folded in). The FAT is too
+     3                              <1> ; big to cache, so entries are read one sector at a time on demand.
+     4                              <1> 
+     5                              <1> VBR_BUF equ 0x0600               ; partition VBR / BPB
+     6                              <1> FAT_SEC equ 0x0A00               ; one FAT sector, on demand
+     7                              <1> F32_DIR equ 0x1000               ; one directory cluster
+     8                              <1> 
+     9                              <1> ; read CX sectors from 32-bit LBA EAX into ES:BX
+    10                              <1> read_sectors32:
+    11 00000265 890E[B500]          <1>     mov [dap_count], cx
+    12 00000269 891E[B700]          <1>     mov [dap_off], bx
+    13 0000026D 8C06[B900]          <1>     mov [dap_seg], es
+    14 00000271 66A3[BB00]          <1>     mov [dap_lba], eax
+    15 00000275 66C706[BF00]000000- <1>     mov dword [dap_lba+4], 0
+    15 0000027D 00                  <1>
+    16 0000027E B442                <1>     mov ah, 0x42
+    17 00000280 8A16[B200]          <1>     mov dl, [drive]
+    18 00000284 BE[B300]            <1>     mov si, dap
+    19 00000287 CD13                <1>     int 0x13
+    20 00000289 7201                <1>     jc .fail
+    21 0000028B C3                  <1>     ret
+    22                              <1> .fail:
+    23 0000028C BE[4D01]            <1>     mov si, msg_diskerr
+    24 0000028F E808FE              <1>     call print_string
+    25 00000292 E919FE              <1>     jmp halt
+    26                              <1> 
+    27                              <1> ; EAX = cluster -> EAX = absolute LBA of its first sector
+    28                              <1> cluster_to_lba:
+    29 00000295 6683E802            <1>     sub eax, 2
+    30 00000299 660FB60E[0104]      <1>     movzx ecx, byte [f32_spc]
+    31 0000029F 66F7E1              <1>     mul ecx
+    32 000002A2 660306[0E04]        <1>     add eax, [f32_data_start]
+    33 000002A7 C3                  <1>     ret
+    34                              <1> 
+    35                              <1> ; EAX = cluster -> EAX = next cluster (28-bit, masked)
+    36                              <1> fat32_next:
+    37 000002A8 6653                <1>     push ebx
+    38 000002AA 6651                <1>     push ecx
+    39 000002AC 6652                <1>     push edx
+    40 000002AE 06                  <1>     push es
+    41 000002AF 6689C2              <1>     mov edx, eax
+    42 000002B2 66C1E202            <1>     shl edx, 2                   ; byte offset of entry in the FAT
+    43 000002B6 6689D0              <1>     mov eax, edx
+    44 000002B9 66C1E809            <1>     shr eax, 9                   ; / 512 = sector index
+    45 000002BD 660306[0A04]        <1>     add eax, [f32_fat_start]
+    46 000002C2 6681E2FF010000      <1>     and edx, 0x1FF               ; offset within that sector
+    47 000002C9 52                  <1>     push dx                      ; read_sectors32 clobbers DX (dl=drive)
+    48 000002CA 31DB                <1>     xor bx, bx
+    49 000002CC 8EC3                <1>     mov es, bx
+    50 000002CE BB000A              <1>     mov bx, FAT_SEC
+    51 000002D1 B90100              <1>     mov cx, 1
+    52 000002D4 E88EFF              <1>     call read_sectors32
+    53 000002D7 5B                  <1>     pop bx                       ; recover the entry offset
+    54 000002D8 668B87000A          <1>     mov eax, [FAT_SEC + bx]
+    55 000002DD 6625FFFFFF0F        <1>     and eax, 0x0FFFFFFF
+    56 000002E3 07                  <1>     pop es
+    57 000002E4 665A                <1>     pop edx
+    58 000002E6 6659                <1>     pop ecx
+    59 000002E8 665B                <1>     pop ebx
+    60 000002EA C3                  <1>     ret
+    61                              <1> 
+    62                              <1> fat32_load_kernel:
+    63 000002EB 8B1E[FC03]          <1>     mov bx, [bpb_ptr]
+    64 000002EF 8B470E              <1>     mov ax, [bx+0x0E]
+    65 000002F2 A3[FE03]            <1>     mov [f32_reserved], ax
+    66 000002F5 8A4710              <1>     mov al, [bx+0x10]
+    67 000002F8 A2[0004]            <1>     mov [f32_numfats], al
+    68 000002FB 8A470D              <1>     mov al, [bx+0x0D]
+    69 000002FE A2[0104]            <1>     mov [f32_spc], al
+    70 00000301 668B4724            <1>     mov eax, [bx+0x24]
+    71 00000305 66A3[0204]          <1>     mov [f32_spf], eax
+    72 00000309 668B472C            <1>     mov eax, [bx+0x2C]
+    73 0000030D 66A3[0604]          <1>     mov [f32_rootclus], eax
+    74                              <1> 
+    75 00000311 660FB706[FE03]      <1>     movzx eax, word [f32_reserved]        ; fat_start = part_start + reserved
+    76 00000317 660306[F803]        <1>     add eax, [partition_start]
+    77 0000031C 66A3[0A04]          <1>     mov [f32_fat_start], eax
+    78                              <1> 
+    79 00000320 660FB606[0004]      <1>     movzx eax, byte [f32_numfats]         ; data_start = + num_fats*spf32
+    80 00000326 668B0E[0204]        <1>     mov ecx, [f32_spf]
+    81 0000032B 66F7E1              <1>     mul ecx
+    82 0000032E 660FB71E[FE03]      <1>     movzx ebx, word [f32_reserved]
+    83 00000334 6601D8              <1>     add eax, ebx
+    84 00000337 660306[F803]        <1>     add eax, [partition_start]
+    85 0000033C 66A3[0E04]          <1>     mov [f32_data_start], eax
+    86                              <1> 
+    87 00000340 66A1[0604]          <1>     mov eax, [f32_rootclus]               ; scan root dir (a cluster chain)
+    88 00000344 66A3[1204]          <1>     mov [f32_dirclus], eax
+    89                              <1> .dir_cluster:
+    90 00000348 66A1[1204]          <1>     mov eax, [f32_dirclus]
+    91 0000034C E846FF              <1>     call cluster_to_lba
+    92 0000034F 31DB                <1>     xor bx, bx
+    93 00000351 8EC3                <1>     mov es, bx
+    94 00000353 BB0010              <1>     mov bx, F32_DIR
+    95 00000356 0FB60E[0104]        <1>     movzx cx, byte [f32_spc]
+    96 0000035B E807FF              <1>     call read_sectors32
+    97                              <1> 
+    98 0000035E BF0010              <1>     mov di, F32_DIR
+    99 00000361 0FB60E[0104]        <1>     movzx cx, byte [f32_spc]              ; entries in this cluster = spc*512/32
+   100 00000366 C1E109              <1>     shl cx, 9
+   101 00000369 C1E905              <1>     shr cx, 5
+   102                              <1> .scan:
+   103 0000036C 803D00              <1>     cmp byte [di], 0x00
+   104 0000036F 742E                <1>     je .notfound
+   105 00000371 803DE5              <1>     cmp byte [di], 0xE5
+   106 00000374 740E                <1>     je .skip
+   107 00000376 51                  <1>     push cx
+   108 00000377 57                  <1>     push di
+   109 00000378 BE[3902]            <1>     mov si, kernel_name
+   110 0000037B B90B00              <1>     mov cx, 11
+   111 0000037E F3A6                <1>     repe cmpsb
+   112 00000380 5F                  <1>     pop di
+   113 00000381 59                  <1>     pop cx
+   114 00000382 7424                <1>     je .found
+   115                              <1> .skip:
+   116 00000384 83C720              <1>     add di, 32
+   117 00000387 49                  <1>     dec cx
+   118 00000388 75E2                <1>     jnz .scan
+   119 0000038A 66A1[1204]          <1>     mov eax, [f32_dirclus]               ; next directory cluster
+   120 0000038E E817FF              <1>     call fat32_next
+   121 00000391 66A3[1204]          <1>     mov [f32_dirclus], eax
+   122 00000395 663DF8FFFF0F        <1>     cmp eax, 0x0FFFFFF8
+   123 0000039B 7302                <1>     jae .notfound
+   124 0000039D EBA9                <1>     jmp .dir_cluster
+   125                              <1> 
+   126                              <1> .notfound:
+   127 0000039F BE[1C04]            <1>     mov si, msg_nokernel32
+   128 000003A2 E8F5FC              <1>     call print_string
+   129 000003A5 E906FD              <1>     jmp halt
+   130                              <1> 
+   131                              <1> .found:
+   132 000003A8 660FB74514          <1>     movzx eax, word [di+0x14]            ; first cluster = high<<16 | low
+   133 000003AD 66C1E010            <1>     shl eax, 16
+   134 000003B1 8B451A              <1>     mov ax, [di+0x1A]
+   135 000003B4 66A3[1604]          <1>     mov [f32_cluster], eax
+   136 000003B8 C706[1A04]0000      <1>     mov word [f32_load_off], 0
+   137                              <1> 
+   138                              <1> .load:
+   139 000003BE 66A1[1604]          <1>     mov eax, [f32_cluster]
+   140 000003C2 E8D0FE              <1>     call cluster_to_lba
+   141 000003C5 BB0010              <1>     mov bx, KERNEL_SEG
+   142 000003C8 8EC3                <1>     mov es, bx
+   143 000003CA 8B1E[1A04]          <1>     mov bx, [f32_load_off]
+   144 000003CE 0FB60E[0104]        <1>     movzx cx, byte [f32_spc]
+   145 000003D3 E88FFE              <1>     call read_sectors32
+   146 000003D6 0FB606[0104]        <1>     movzx ax, byte [f32_spc]
+   147 000003DB C1E009              <1>     shl ax, 9
+   148 000003DE 0106[1A04]          <1>     add [f32_load_off], ax
+   149 000003E2 66A1[1604]          <1>     mov eax, [f32_cluster]
+   150 000003E6 E8BFFE              <1>     call fat32_next
+   151 000003E9 66A3[1604]          <1>     mov [f32_cluster], eax
+   152 000003ED 663DF8FFFF0F        <1>     cmp eax, 0x0FFFFFF8
+   153 000003F3 7302                <1>     jae .done
+   154 000003F5 EBC7                <1>     jmp .load
+   155                              <1> .done:
+   156 000003F7 C3                  <1>     ret
+   157                              <1> 
+   158 000003F8 00000000            <1> partition_start: dd 0
+   159 000003FC 0000                <1> bpb_ptr:         dw 0
+   160 000003FE 0000                <1> f32_reserved:    dw 0
+   161 00000400 00                  <1> f32_numfats:     db 0
+   162 00000401 00                  <1> f32_spc:         db 0
+   163 00000402 00000000            <1> f32_spf:         dd 0
+   164 00000406 00000000            <1> f32_rootclus:    dd 0
+   165 0000040A 00000000            <1> f32_fat_start:   dd 0
+   166 0000040E 00000000            <1> f32_data_start:  dd 0
+   167 00000412 00000000            <1> f32_dirclus:     dd 0
+   168 00000416 00000000            <1> f32_cluster:     dd 0
+   169 0000041A 0000                <1> f32_load_off:    dw 0
+   170 0000041C 4B45524E454C2E4249- <1> msg_nokernel32:  db 'KERNEL.BIN not found (fat32)', 0x0D, 0x0A, 0
+   170 00000425 4E206E6F7420666F75- <1>
+   170 0000042E 6E6420286661743332- <1>
+   170 00000437 290D0A00            <1>
