@@ -2,6 +2,7 @@ bits 16
 org 0x7E00
 
 KERNEL_SEG equ 0x1000
+CFG_SEG    equ 0x0400                    ; config buffer (linear 0x4000)
 
 %ifndef BOOT_PART
 %define BOOT_PART 0                      ; which MBR partition to boot (0-3)
@@ -12,18 +13,13 @@ stage2_start:
     xor ax, ax
     mov ds, ax
     mov es, ax
-
     cld
-    mov si, msg_stage2
-    call print_string
 
     call fat_detect
-
-    mov si, msg_jump
-    call print_string
+    call menu_main                       ; loads the chosen kernel to KERNEL_SEG:0
     jmp KERNEL_SEG:0x0000
 
-; locate the BPB (sector 0, or the VBR of a partition) and pick the driver
+; detect filesystem: set [fat_is32], [partition_start], [bpb_ptr]
 fat_detect:
     mov al, [0x7C00 + 0x1BE + (BOOT_PART*16) + 4]   ; selected partition's type
     test al, al
@@ -34,7 +30,7 @@ fat_detect:
     mov es, bx
     mov bx, VBR_BUF
     mov cx, 1
-    call read_sectors32                 ; load the partition's VBR (its BPB)
+    call read_sectors32                  ; load the partition's VBR (its BPB)
     mov word [bpb_ptr], VBR_BUF
     jmp .decide
 .novbr:
@@ -43,18 +39,22 @@ fat_detect:
     mov word [bpb_ptr], 0x7C00
 .decide:
     mov bx, [bpb_ptr]
-    mov ax, [bx+0x16]                   ; sectors_per_fat_16 == 0 -> FAT32
+    mov ax, [bx+0x16]                    ; sectors_per_fat_16 == 0 -> FAT32
     test ax, ax
     jz .fat32
-    mov si, msg_fat12
-    call print_string
-    call fat12_load_kernel
+    mov byte [fat_is32], 0
     ret
 .fat32:
-    mov si, msg_fat32
-    call print_string
-    call fat32_load_kernel
+    mov byte [fat_is32], 1
     ret
+
+; load file [find_name] to [dest_seg]:0 via the detected driver; CF if not found
+fat_load_file:
+    cmp byte [fat_is32], 0
+    jne .f32
+    jmp fat12_load_file
+.f32:
+    jmp fat32_load_file
 
 ; read CX sectors from LBA AX into ES:BX (16-bit LBA, used by fat12)
 read_sectors:
@@ -108,11 +108,13 @@ dap_seg:   dw 0
 dap_lba:   dd 0
            dd 0
 
-msg_stage2:  db 'Stage 2 running, detecting filesystem...', 0x0D, 0x0A, 0
-msg_fat12:   db 'FAT12 detected, loading kernel...', 0x0D, 0x0A, 0
-msg_fat32:   db 'FAT32 detected, loading kernel...', 0x0D, 0x0A, 0
-msg_jump:    db 'Jumping to kernel...', 0x0D, 0x0A, 0
+fat_is32:  db 0
+find_name: dw 0
+dest_seg:  dw 0
+file_size: dd 0
+
 msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
 
 %include "fat12.asm"
 %include "fat32.asm"
+%include "menu.asm"

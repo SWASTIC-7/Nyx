@@ -8,6 +8,9 @@ org 0
 %endif
 
 start:
+    mov ax, 0x0003
+    int 0x10                   ; clear the screen (menu leftovers) before printing
+
     mov ax, 0x1000
     mov ds, ax
     mov es, ax

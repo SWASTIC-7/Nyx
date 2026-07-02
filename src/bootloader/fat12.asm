@@ -13,7 +13,8 @@ bpb_spf      equ BPB+0x16               ; sectors per FAT
 FAT_BUF equ 0x0500                       ; FAT #1 loaded here
 DIR_BUF equ 0x2000                       ; root directory loaded here
 
-fat12_load_kernel:
+; load the file named at [find_name] to [dest_seg]:0; CF set if not found
+fat12_load_file:
     mov ax, [bpb_reserved]
     mov [fat_start], ax
 
@@ -55,7 +56,7 @@ fat12_load_kernel:
     je .notfound
     cmp byte [di], 0xE5                  ; 0xE5 = deleted entry
     je .next
-    mov si, kernel_name
+    mov si, [find_name]
     mov cx, 11
     push di
     repe cmpsb
@@ -66,10 +67,14 @@ fat12_load_kernel:
     dec dx
     jnz .scan
 .notfound:
-    mov si, msg_nokernel
-    call print_string
-    jmp halt
+    stc                                  ; caller decides what to do
+    ret
 .found:
+    mov cx, [di+28]                      ; remember the file size (dword)
+    mov [file_size], cx
+    mov cx, [di+30]
+    mov [file_size+2], cx
+    mov word [load_off], 0
     mov ax, [di+26]                      ; first cluster (low word)
 
 .load:
@@ -79,7 +84,7 @@ fat12_load_kernel:
     mov cl, [bpb_spc]
     mul cx                               ; (cluster-2) * sectors_per_cluster
     add ax, [data_start]
-    mov bx, KERNEL_SEG
+    mov bx, [dest_seg]
     mov es, bx
     mov bx, [load_off]
     xor cx, cx
@@ -93,6 +98,7 @@ fat12_load_kernel:
     jae .done
     jmp .load
 .done:
+    clc
     ret
 
 ; next cluster in chain: AX = current cluster -> AX = next (12-bit)

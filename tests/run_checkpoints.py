@@ -18,21 +18,24 @@ def as_int(v):
     return int(v, 16) if isinstance(v, str) and v.lower().startswith('0x') else int(v)
 
 def main():
+    img  = sys.argv[1] if len(sys.argv) > 1 else 'build/disk.img'
+    spec = sys.argv[2] if len(sys.argv) > 2 else 'tests/checkpoints.json'
     listings = [(0x7C00, 'build/mbr.lst'), (0x7E00, 'build/stage2.lst')]
-    cps = json.load(open('tests/checkpoints.json'))
+    cps = json.load(open(spec))
 
     for cp in cps:
         cp['pc'] = as_int(cp['addr']) if 'addr' in cp else resolve_label(listings, cp['label'])
         if cp['pc'] is None:
             print(f"[FAIL] {cp['name']}: could not resolve address"); sys.exit(1)
         for a in cp['asserts']:
-            if 'mem16' in a:
-                a['mem16_addr'] = resolve_label(listings, a['mem16'])
+            for k in ('mem8', 'mem16', 'memstr'):
+                if k in a:
+                    a['_addr'] = resolve_label(listings, a[k]) + a.get('offset', 0)
     os.makedirs('build', exist_ok=True)
     json.dump(cps, open('build/checkpoints_resolved.json', 'w'))
 
     qemu = subprocess.Popen(
-        ['qemu-system-i386', '-drive', 'format=raw,file=build/disk.img',
+        ['qemu-system-i386', '-drive', f'format=raw,file={img}',
          '-S', '-gdb', 'tcp::1234', '-display', 'none'],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

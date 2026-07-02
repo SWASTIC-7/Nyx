@@ -59,7 +59,8 @@ fat32_next:
     pop ebx
     ret
 
-fat32_load_kernel:
+; load the file named at [find_name] to [dest_seg]:0; CF set if not found
+fat32_load_file:
     mov bx, [bpb_ptr]
     mov ax, [bx+0x0E]
     mov [f32_reserved], ax
@@ -106,7 +107,7 @@ fat32_load_kernel:
     je .skip
     push cx
     push di
-    mov si, kernel_name
+    mov si, [find_name]
     mov cx, 11
     repe cmpsb
     pop di
@@ -124,11 +125,12 @@ fat32_load_kernel:
     jmp .dir_cluster
 
 .notfound:
-    mov si, msg_nokernel32
-    call print_string
-    jmp halt
+    stc
+    ret
 
 .found:
+    mov eax, [di+0x1C]                   ; file size
+    mov [file_size], eax
     movzx eax, word [di+0x14]            ; first cluster = high<<16 | low
     shl eax, 16
     mov ax, [di+0x1A]
@@ -138,7 +140,7 @@ fat32_load_kernel:
 .load:
     mov eax, [f32_cluster]
     call cluster_to_lba
-    mov bx, KERNEL_SEG
+    mov bx, [dest_seg]
     mov es, bx
     mov bx, [f32_load_off]
     movzx cx, byte [f32_spc]
@@ -153,6 +155,7 @@ fat32_load_kernel:
     jae .done
     jmp .load
 .done:
+    clc
     ret
 
 partition_start: dd 0

@@ -32,9 +32,15 @@ def run_asserts(cp):
         if 'reg' in a:
             got, want = rv(a['reg']), as_int(a['eq'])
             ok, detail = got == want, f"{a['reg']}={got}(0x{got:x}) want {want}"
+        elif 'mem8' in a:
+            got = rd(a['_addr'], 1)[0]; want = as_int(a['eq'])
+            ok, detail = got == want, f"[{a['mem8']}]={got} want {want}"
         elif 'mem16' in a:
-            got = int.from_bytes(rd(a['mem16_addr'], 2), 'little'); want = as_int(a['eq'])
+            got = int.from_bytes(rd(a['_addr'], 2), 'little'); want = as_int(a['eq'])
             ok, detail = got == want, f"[{a['mem16']}]={got} want {want}"
+        elif 'memstr' in a:
+            got = rd(a['_addr'], len(a['eq'])).decode('latin1')
+            ok, detail = got == a['eq'], f"'{got}' want '{a['eq']}'"
         elif 'memcmp' in a:
             m = a['memcmp']; want = open(m['file'], 'rb').read()[:m['len']]
             got = rd(as_int(m['addr']), m['len'])
