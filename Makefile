@@ -18,7 +18,7 @@ $(BUILD_DIR)/mbr.bin: $(SRC_DIR)/mbr.asm
 	mkdir -p $(BUILD_DIR)
 	$(NASM) -f bin $< -o $@ -l $(BUILD_DIR)/mbr.lst
 
-$(BUILD_DIR)/stage2.bin: $(SRC_DIR)/stage2.asm $(SRC_DIR)/fat12.asm $(SRC_DIR)/fat32.asm $(SRC_DIR)/menu.asm
+$(BUILD_DIR)/stage2.bin: $(SRC_DIR)/stage2.asm $(SRC_DIR)/fat12.asm $(SRC_DIR)/fat32.asm $(SRC_DIR)/menu.asm $(SRC_DIR)/gdt.asm
 	mkdir -p $(BUILD_DIR)
 	$(NASM) -f bin -I $(SRC_DIR)/ -DBOOT_PART=$(BOOT_PART) $< -o $@ -l $(BUILD_DIR)/stage2.lst
 
