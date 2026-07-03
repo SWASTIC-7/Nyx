@@ -20,7 +20,7 @@ stage2_start:
     call enable_a20                      ; unlock memory above 1 MB (protected-mode prep)
     call get_e820                        ; grab the memory map (last BIOS call)
     call gdt_install                     ; point the CPU at our GDT
-    jmp KERNEL_SEG:0x0000
+    jmp switch_to_pm
 
 ; detect filesystem: set [fat_is32], [partition_start], [bpb_ptr]
 fat_detect:
@@ -124,3 +124,22 @@ msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
 %include "gdt.asm"
 %include "a20.asm"
 %include "e820.asm"
+
+; ---- the real -> protected mode switch --------------------------------------
+switch_to_pm:
+    cli                                  ; real-mode IVT is about to be invalid
+    mov eax, cr0
+    or  al, 1                            ; set PE (Protection Enable)
+    mov cr0, eax
+    jmp CODE_SEG:pm_entry                ; far jump: reload CS=0x08, flush pipeline
+
+[bits 32]
+pm_entry:
+    mov ax, DATA_SEG                     ; reload data selectors (flat data segment)
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, 0x90000                     ; 32-bit stack
+    jmp KERNEL_SEG*16                    ; enter the loaded 32-bit kernel at 0x10000

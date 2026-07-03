@@ -10,7 +10,13 @@ KSRC_DIR  := src/kernel_asm
 
 NASM := nasm
 QEMU := qemu-system-i386
+GCC  := gcc
+LD   := ld
 BOOT_PART ?= 0
+
+KC_DIR    := src/kernel_c
+GCC_FLAGS := -m32 -ffreestanding -fno-pie -nostdlib -c -Wall -Wextra
+LD_FLAGS  := -m elf_i386 -T $(KC_DIR)/linker.ld --oformat binary
 
 all: $(BUILD_DIR)/disk.img
 
@@ -22,9 +28,17 @@ $(BUILD_DIR)/stage2.bin: $(SRC_DIR)/stage2.asm $(SRC_DIR)/fat12.asm $(SRC_DIR)/f
 	mkdir -p $(BUILD_DIR)
 	$(NASM) -f bin -I $(SRC_DIR)/ -DBOOT_PART=$(BOOT_PART) $< -o $@ -l $(BUILD_DIR)/stage2.lst
 
-$(BUILD_DIR)/kernel.bin: $(KSRC_DIR)/main.asm
+# The main kernel is a real 32-bit C kernel, entered after the PM switch
+$(BUILD_DIR)/kernel_entry.o: $(KC_DIR)/kernel_entry.asm
 	mkdir -p $(BUILD_DIR)
-	$(NASM) -f bin $< -o $@
+	$(NASM) -f elf32 $< -o $@
+
+$(BUILD_DIR)/kernel_c.o: $(KC_DIR)/kernel.c
+	mkdir -p $(BUILD_DIR)
+	$(GCC) $(GCC_FLAGS) $< -o $@
+
+$(BUILD_DIR)/kernel.bin: $(BUILD_DIR)/kernel_entry.o $(BUILD_DIR)/kernel_c.o
+	$(LD) $(LD_FLAGS) $^ -o $@
 
 $(BUILD_DIR)/kernel_a.bin: $(KSRC_DIR)/kernel_test.asm
 	mkdir -p $(BUILD_DIR)

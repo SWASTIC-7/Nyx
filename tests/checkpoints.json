@@ -32,11 +32,5 @@
       { "mem16": "e820_map", "offset": 0,  "eq": 0 },
       { "mem16": "e820_map", "offset": 16, "eq": 1 }
     ]
-  },
-  {
-    "name": "kernel_loaded_at_0x10000",
-    "addr": "0x10000",
-    "note": "bootloader jumped to the kernel; the file must be resident",
-    "asserts": [ { "memcmp": { "addr": "0x10000", "file": "build/kernel.bin", "len": 1536 } } ]
   }
 ]

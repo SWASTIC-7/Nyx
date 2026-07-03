@@ -9,115 +9,115 @@
      9                                  %endif
     10                                  
     11                                  stage2_start:
-    12 00000000 8816[B600]                  mov [drive], dl
+    12 00000000 8816[B400]                  mov [drive], dl
     13 00000004 31C0                        xor ax, ax
     14 00000006 8ED8                        mov ds, ax
     15 00000008 8EC0                        mov es, ax
     16 0000000A FC                          cld
     17                                  
-    18 0000000B E81100                      call fat_detect
-    19 0000000E E8C103                      call menu_main                       ; loads the chosen kernel to KERNEL_SEG:0
-    20 00000011 E81A08                      call enable_a20                      ; unlock memory above 1 MB (protected-mode prep)
-    21 00000014 E87F08                      call get_e820                        ; grab the memory map (last BIOS call)
-    22 00000017 E80E08                      call gdt_install                     ; point the CPU at our GDT
-    23 0000001A EA00000010                  jmp KERNEL_SEG:0x0000
+    18 0000000B E80F00                      call fat_detect
+    19 0000000E E8BF03                      call menu_main                       ; loads the chosen kernel to KERNEL_SEG:0
+    20 00000011 E81808                      call enable_a20                      ; unlock memory above 1 MB (protected-mode prep)
+    21 00000014 E87D08                      call get_e820                        ; grab the memory map (last BIOS call)
+    22 00000017 E80C08                      call gdt_install                     ; point the CPU at our GDT
+    23 0000001A E9FD0A                      jmp switch_to_pm
     24                                  
     25                                  ; detect filesystem: set [fat_is32], [partition_start], [bpb_ptr]
     26                                  fat_detect:
-    27 0000001F A0C27D                      mov al, [0x7C00 + 0x1BE + (BOOT_PART*16) + 4]   ; selected partition's type
-    28 00000022 84C0                        test al, al
-    29 00000024 741D                        jz .novbr
-    30 00000026 66A1C67D                    mov eax, [0x7C00 + 0x1BE + (BOOT_PART*16) + 8]  ; its start LBA
-    31 0000002A 66A3[8F03]                  mov [partition_start], eax
-    32 0000002E 31DB                        xor bx, bx
-    33 00000030 8EC3                        mov es, bx
-    34 00000032 BB0006                      mov bx, VBR_BUF
-    35 00000035 B90100                      mov cx, 1
-    36 00000038 E8BD01                      call read_sectors32                  ; load the partition's VBR (its BPB)
-    37 0000003B C706[9303]0006              mov word [bpb_ptr], VBR_BUF
-    38 00000041 EB0D                        jmp .decide
+    27 0000001D A0C27D                      mov al, [0x7C00 + 0x1BE + (BOOT_PART*16) + 4]   ; selected partition's type
+    28 00000020 84C0                        test al, al
+    29 00000022 741D                        jz .novbr
+    30 00000024 66A1C67D                    mov eax, [0x7C00 + 0x1BE + (BOOT_PART*16) + 8]  ; its start LBA
+    31 00000028 66A3[8D03]                  mov [partition_start], eax
+    32 0000002C 31DB                        xor bx, bx
+    33 0000002E 8EC3                        mov es, bx
+    34 00000030 BB0006                      mov bx, VBR_BUF
+    35 00000033 B90100                      mov cx, 1
+    36 00000036 E8BD01                      call read_sectors32                  ; load the partition's VBR (its BPB)
+    37 00000039 C706[9103]0006              mov word [bpb_ptr], VBR_BUF
+    38 0000003F EB0D                        jmp .decide
     39                                  .novbr:
-    40 00000043 6631C0                      xor eax, eax
-    41 00000046 66A3[8F03]                  mov [partition_start], eax
-    42 0000004A C706[9303]007C              mov word [bpb_ptr], 0x7C00
+    40 00000041 6631C0                      xor eax, eax
+    41 00000044 66A3[8D03]                  mov [partition_start], eax
+    42 00000048 C706[9103]007C              mov word [bpb_ptr], 0x7C00
     43                                  .decide:
-    44 00000050 8B1E[9303]                  mov bx, [bpb_ptr]
-    45 00000054 8B4716                      mov ax, [bx+0x16]                    ; sectors_per_fat_16 == 0 -> FAT32
-    46 00000057 85C0                        test ax, ax
-    47 00000059 7406                        jz .fat32
-    48 0000005B C606[C700]00                mov byte [fat_is32], 0
-    49 00000060 C3                          ret
+    44 0000004E 8B1E[9103]                  mov bx, [bpb_ptr]
+    45 00000052 8B4716                      mov ax, [bx+0x16]                    ; sectors_per_fat_16 == 0 -> FAT32
+    46 00000055 85C0                        test ax, ax
+    47 00000057 7406                        jz .fat32
+    48 00000059 C606[C500]00                mov byte [fat_is32], 0
+    49 0000005E C3                          ret
     50                                  .fat32:
-    51 00000061 C606[C700]01                mov byte [fat_is32], 1
-    52 00000066 C3                          ret
+    51 0000005F C606[C500]01                mov byte [fat_is32], 1
+    52 00000064 C3                          ret
     53                                  
     54                                  ; load file [find_name] to [dest_seg]:0 via the detected driver; CF if not found
     55                                  fat_load_file:
-    56 00000067 803E[C700]00                cmp byte [fat_is32], 0
-    57 0000006C 7502                        jne .f32
-    58 0000006E EB72                        jmp fat12_load_file
+    56 00000065 803E[C500]00                cmp byte [fat_is32], 0
+    57 0000006A 7502                        jne .f32
+    58 0000006C EB72                        jmp fat12_load_file
     59                                  .f32:
-    60 00000070 E90B02                      jmp fat32_load_file
+    60 0000006E E90B02                      jmp fat32_load_file
     61                                  
     62                                  ; read CX sectors from LBA AX into ES:BX (16-bit LBA, used by fat12)
     63                                  read_sectors:
-    64 00000073 890E[B900]                  mov [dap_count], cx
-    65 00000077 891E[BB00]                  mov [dap_off], bx
-    66 0000007B 8C06[BD00]                  mov [dap_seg], es
-    67 0000007F A3[BF00]                    mov [dap_lba], ax
-    68 00000082 C706[C100]0000              mov word [dap_lba+2], 0
-    69 00000088 B442                        mov ah, 0x42
-    70 0000008A 8A16[B600]                  mov dl, [drive]
-    71 0000008E BE[B700]                    mov si, dap
-    72 00000091 CD13                        int 0x13
-    73 00000093 7201                        jc .fail
-    74 00000095 C3                          ret
+    64 00000071 890E[B700]                  mov [dap_count], cx
+    65 00000075 891E[B900]                  mov [dap_off], bx
+    66 00000079 8C06[BB00]                  mov [dap_seg], es
+    67 0000007D A3[BD00]                    mov [dap_lba], ax
+    68 00000080 C706[BF00]0000              mov word [dap_lba+2], 0
+    69 00000086 B442                        mov ah, 0x42
+    70 00000088 8A16[B400]                  mov dl, [drive]
+    71 0000008C BE[B500]                    mov si, dap
+    72 0000008F CD13                        int 0x13
+    73 00000091 7201                        jc .fail
+    74 00000093 C3                          ret
     75                                  .fail:
-    76 00000096 BE[D000]                    mov si, msg_diskerr
-    77 00000099 E80200                      call print_string
-    78 0000009C EB14                        jmp halt
+    76 00000094 BE[CE00]                    mov si, msg_diskerr
+    77 00000097 E80200                      call print_string
+    78 0000009A EB14                        jmp halt
     79                                  
     80                                  print_string:
-    81 0000009E 50                          push ax
-    82 0000009F 53                          push bx
-    83 000000A0 56                          push si
-    84 000000A1 B700                        mov bh, 0
+    81 0000009C 50                          push ax
+    82 0000009D 53                          push bx
+    83 0000009E 56                          push si
+    84 0000009F B700                        mov bh, 0
     85                                  .next:
-    86 000000A3 AC                          lodsb
-    87 000000A4 84C0                        test al, al
-    88 000000A6 7406                        jz .done
-    89 000000A8 B40E                        mov ah, 0x0E
-    90 000000AA CD10                        int 0x10
-    91 000000AC EBF5                        jmp .next
+    86 000000A1 AC                          lodsb
+    87 000000A2 84C0                        test al, al
+    88 000000A4 7406                        jz .done
+    89 000000A6 B40E                        mov ah, 0x0E
+    90 000000A8 CD10                        int 0x10
+    91 000000AA EBF5                        jmp .next
     92                                  .done:
-    93 000000AE 5E                          pop si
-    94 000000AF 5B                          pop bx
-    95 000000B0 58                          pop ax
-    96 000000B1 C3                          ret
+    93 000000AC 5E                          pop si
+    94 000000AD 5B                          pop bx
+    95 000000AE 58                          pop ax
+    96 000000AF C3                          ret
     97                                  
     98                                  halt:
-    99 000000B2 FA                          cli
-   100 000000B3 F4                          hlt
-   101 000000B4 EBFC                        jmp halt
+    99 000000B0 FA                          cli
+   100 000000B1 F4                          hlt
+   101 000000B2 EBFC                        jmp halt
    102                                  
-   103 000000B6 00                      drive: db 0
+   103 000000B4 00                      drive: db 0
    104                                  
    105                                  dap:
-   106 000000B7 10                          db 0x10
-   107 000000B8 00                          db 0
-   108 000000B9 0000                    dap_count: dw 0
-   109 000000BB 0000                    dap_off:   dw 0
-   110 000000BD 0000                    dap_seg:   dw 0
-   111 000000BF 00000000                dap_lba:   dd 0
-   112 000000C3 00000000                           dd 0
+   106 000000B5 10                          db 0x10
+   107 000000B6 00                          db 0
+   108 000000B7 0000                    dap_count: dw 0
+   109 000000B9 0000                    dap_off:   dw 0
+   110 000000BB 0000                    dap_seg:   dw 0
+   111 000000BD 00000000                dap_lba:   dd 0
+   112 000000C1 00000000                           dd 0
    113                                  
-   114 000000C7 00                      fat_is32:  db 0
-   115 000000C8 0000                    find_name: dw 0
-   116 000000CA 0000                    dest_seg:  dw 0
-   117 000000CC 00000000                file_size: dd 0
+   114 000000C5 00                      fat_is32:  db 0
+   115 000000C6 0000                    find_name: dw 0
+   116 000000C8 0000                    dest_seg:  dw 0
+   117 000000CA 00000000                file_size: dd 0
    118                                  
-   119 000000D0 4469736B2072656164-     msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
-   119 000000D9 206572726F720D0A00 
+   119 000000CE 4469736B2072656164-     msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
+   119 000000D7 206572726F720D0A00 
    120                                  
    121                                  %include "fat12.asm"
      1                              <1> ; FAT12 driver - reads BPB from the resident boot sector at 0x7C00,
@@ -137,125 +137,125 @@
     15                              <1> 
     16                              <1> ; load the file named at [find_name] to [dest_seg]:0; CF set if not found
     17                              <1> fat12_load_file:
-    18 000000E2 A10E7C              <1>     mov ax, [bpb_reserved]
-    19 000000E5 A3[D701]            <1>     mov [fat_start], ax
+    18 000000E0 A10E7C              <1>     mov ax, [bpb_reserved]
+    19 000000E3 A3[D501]            <1>     mov [fat_start], ax
     20                              <1> 
-    21 000000E8 A0107C              <1>     mov al, [bpb_numfats]
-    22 000000EB 30E4                <1>     xor ah, ah
-    23 000000ED 8B0E167C            <1>     mov cx, [bpb_spf]
-    24 000000F1 F7E1                <1>     mul cx                               ; numfats * sectors_per_fat
-    25 000000F3 0306[D701]          <1>     add ax, [fat_start]
-    26 000000F7 A3[D901]            <1>     mov [root_start], ax
+    21 000000E6 A0107C              <1>     mov al, [bpb_numfats]
+    22 000000E9 30E4                <1>     xor ah, ah
+    23 000000EB 8B0E167C            <1>     mov cx, [bpb_spf]
+    24 000000EF F7E1                <1>     mul cx                               ; numfats * sectors_per_fat
+    25 000000F1 0306[D501]          <1>     add ax, [fat_start]
+    26 000000F5 A3[D701]            <1>     mov [root_start], ax
     27                              <1> 
-    28 000000FA A1117C              <1>     mov ax, [bpb_rootent]
-    29 000000FD B92000              <1>     mov cx, 32
-    30 00000100 F7E1                <1>     mul cx                               ; root_entries * 32 bytes
-    31 00000102 03060B7C            <1>     add ax, [bpb_bps]
-    32 00000106 48                  <1>     dec ax
-    33 00000107 31D2                <1>     xor dx, dx
-    34 00000109 F7360B7C            <1>     div word [bpb_bps]                   ; ceil(dir bytes / bytes_per_sector)
-    35 0000010D A3[DB01]            <1>     mov [root_sectors], ax
+    28 000000F8 A1117C              <1>     mov ax, [bpb_rootent]
+    29 000000FB B92000              <1>     mov cx, 32
+    30 000000FE F7E1                <1>     mul cx                               ; root_entries * 32 bytes
+    31 00000100 03060B7C            <1>     add ax, [bpb_bps]
+    32 00000104 48                  <1>     dec ax
+    33 00000105 31D2                <1>     xor dx, dx
+    34 00000107 F7360B7C            <1>     div word [bpb_bps]                   ; ceil(dir bytes / bytes_per_sector)
+    35 0000010B A3[D901]            <1>     mov [root_sectors], ax
     36                              <1> 
-    37 00000110 0306[D901]          <1>     add ax, [root_start]
-    38 00000114 A3[DD01]            <1>     mov [data_start], ax
+    37 0000010E 0306[D701]          <1>     add ax, [root_start]
+    38 00000112 A3[DB01]            <1>     mov [data_start], ax
     39                              <1> 
-    40 00000117 31C0                <1>     xor ax, ax
-    41 00000119 8EC0                <1>     mov es, ax
-    42 0000011B A1[D701]            <1>     mov ax, [fat_start]
-    43 0000011E 8B0E167C            <1>     mov cx, [bpb_spf]
-    44 00000122 BB0005              <1>     mov bx, FAT_BUF
-    45 00000125 E84BFF              <1>     call read_sectors
+    40 00000115 31C0                <1>     xor ax, ax
+    41 00000117 8EC0                <1>     mov es, ax
+    42 00000119 A1[D501]            <1>     mov ax, [fat_start]
+    43 0000011C 8B0E167C            <1>     mov cx, [bpb_spf]
+    44 00000120 BB0005              <1>     mov bx, FAT_BUF
+    45 00000123 E84BFF              <1>     call read_sectors
     46                              <1> 
-    47 00000128 A1[D901]            <1>     mov ax, [root_start]
-    48 0000012B 8B0E[DB01]          <1>     mov cx, [root_sectors]
-    49 0000012F BB0020              <1>     mov bx, DIR_BUF
-    50 00000132 E83EFF              <1>     call read_sectors
+    47 00000126 A1[D701]            <1>     mov ax, [root_start]
+    48 00000129 8B0E[D901]          <1>     mov cx, [root_sectors]
+    49 0000012D BB0020              <1>     mov bx, DIR_BUF
+    50 00000130 E83EFF              <1>     call read_sectors
     51                              <1> 
-    52 00000135 BF0020              <1>     mov di, DIR_BUF
-    53 00000138 8B16117C            <1>     mov dx, [bpb_rootent]
+    52 00000133 BF0020              <1>     mov di, DIR_BUF
+    53 00000136 8B16117C            <1>     mov dx, [bpb_rootent]
     54                              <1> .scan:
-    55 0000013C 803D00              <1>     cmp byte [di], 0x00                  ; 0x00 = end of directory
-    56 0000013F 7418                <1>     je .notfound
-    57 00000141 803DE5              <1>     cmp byte [di], 0xE5                  ; 0xE5 = deleted entry
-    58 00000144 740D                <1>     je .next
-    59 00000146 8B36[C800]          <1>     mov si, [find_name]
-    60 0000014A B90B00              <1>     mov cx, 11
-    61 0000014D 57                  <1>     push di
-    62 0000014E F3A6                <1>     repe cmpsb
-    63 00000150 5F                  <1>     pop di
-    64 00000151 7408                <1>     je .found
+    55 0000013A 803D00              <1>     cmp byte [di], 0x00                  ; 0x00 = end of directory
+    56 0000013D 7418                <1>     je .notfound
+    57 0000013F 803DE5              <1>     cmp byte [di], 0xE5                  ; 0xE5 = deleted entry
+    58 00000142 740D                <1>     je .next
+    59 00000144 8B36[C600]          <1>     mov si, [find_name]
+    60 00000148 B90B00              <1>     mov cx, 11
+    61 0000014B 57                  <1>     push di
+    62 0000014C F3A6                <1>     repe cmpsb
+    63 0000014E 5F                  <1>     pop di
+    64 0000014F 7408                <1>     je .found
     65                              <1> .next:
-    66 00000153 83C720              <1>     add di, 32
-    67 00000156 4A                  <1>     dec dx
-    68 00000157 75E3                <1>     jnz .scan
+    66 00000151 83C720              <1>     add di, 32
+    67 00000154 4A                  <1>     dec dx
+    68 00000155 75E3                <1>     jnz .scan
     69                              <1> .notfound:
-    70 00000159 F9                  <1>     stc                                  ; caller decides what to do
-    71 0000015A C3                  <1>     ret
+    70 00000157 F9                  <1>     stc                                  ; caller decides what to do
+    71 00000158 C3                  <1>     ret
     72                              <1> .found:
-    73 0000015B 8B4D1C              <1>     mov cx, [di+28]                      ; remember the file size (dword)
-    74 0000015E 890E[CC00]          <1>     mov [file_size], cx
-    75 00000162 8B4D1E              <1>     mov cx, [di+30]
-    76 00000165 890E[CE00]          <1>     mov [file_size+2], cx
-    77 00000169 C706[DF01]0000      <1>     mov word [load_off], 0
-    78 0000016F 8B451A              <1>     mov ax, [di+26]                      ; first cluster (low word)
+    73 00000159 8B4D1C              <1>     mov cx, [di+28]                      ; remember the file size (dword)
+    74 0000015C 890E[CA00]          <1>     mov [file_size], cx
+    75 00000160 8B4D1E              <1>     mov cx, [di+30]
+    76 00000163 890E[CC00]          <1>     mov [file_size+2], cx
+    77 00000167 C706[DD01]0000      <1>     mov word [load_off], 0
+    78 0000016D 8B451A              <1>     mov ax, [di+26]                      ; first cluster (low word)
     79                              <1> 
     80                              <1> .load:
-    81 00000172 50                  <1>     push ax
-    82 00000173 83E802              <1>     sub ax, 2
-    83 00000176 31C9                <1>     xor cx, cx
-    84 00000178 8A0E0D7C            <1>     mov cl, [bpb_spc]
-    85 0000017C F7E1                <1>     mul cx                               ; (cluster-2) * sectors_per_cluster
-    86 0000017E 0306[DD01]          <1>     add ax, [data_start]
-    87 00000182 8B1E[CA00]          <1>     mov bx, [dest_seg]
-    88 00000186 8EC3                <1>     mov es, bx
-    89 00000188 8B1E[DF01]          <1>     mov bx, [load_off]
-    90 0000018C 31C9                <1>     xor cx, cx
-    91 0000018E 8A0E0D7C            <1>     mov cl, [bpb_spc]
-    92 00000192 E8DEFE              <1>     call read_sectors
-    93 00000195 C1E109              <1>     shl cx, 9                            ; cluster size in bytes
-    94 00000198 010E[DF01]          <1>     add [load_off], cx
-    95 0000019C 58                  <1>     pop ax
-    96 0000019D E80900              <1>     call fat12_next
-    97 000001A0 3DF80F              <1>     cmp ax, 0x0FF8                        ; >= 0xFF8 = end of chain
-    98 000001A3 7302                <1>     jae .done
-    99 000001A5 EBCB                <1>     jmp .load
+    81 00000170 50                  <1>     push ax
+    82 00000171 83E802              <1>     sub ax, 2
+    83 00000174 31C9                <1>     xor cx, cx
+    84 00000176 8A0E0D7C            <1>     mov cl, [bpb_spc]
+    85 0000017A F7E1                <1>     mul cx                               ; (cluster-2) * sectors_per_cluster
+    86 0000017C 0306[DB01]          <1>     add ax, [data_start]
+    87 00000180 8B1E[C800]          <1>     mov bx, [dest_seg]
+    88 00000184 8EC3                <1>     mov es, bx
+    89 00000186 8B1E[DD01]          <1>     mov bx, [load_off]
+    90 0000018A 31C9                <1>     xor cx, cx
+    91 0000018C 8A0E0D7C            <1>     mov cl, [bpb_spc]
+    92 00000190 E8DEFE              <1>     call read_sectors
+    93 00000193 C1E109              <1>     shl cx, 9                            ; cluster size in bytes
+    94 00000196 010E[DD01]          <1>     add [load_off], cx
+    95 0000019A 58                  <1>     pop ax
+    96 0000019B E80900              <1>     call fat12_next
+    97 0000019E 3DF80F              <1>     cmp ax, 0x0FF8                        ; >= 0xFF8 = end of chain
+    98 000001A1 7302                <1>     jae .done
+    99 000001A3 EBCB                <1>     jmp .load
    100                              <1> .done:
-   101 000001A7 F8                  <1>     clc
-   102 000001A8 C3                  <1>     ret
+   101 000001A5 F8                  <1>     clc
+   102 000001A6 C3                  <1>     ret
    103                              <1> 
    104                              <1> ; next cluster in chain: AX = current cluster -> AX = next (12-bit)
    105                              <1> fat12_next:
-   106 000001A9 53                  <1>     push bx
-   107 000001AA 51                  <1>     push cx
-   108 000001AB 52                  <1>     push dx
-   109 000001AC 89C3                <1>     mov bx, ax
-   110 000001AE 89C1                <1>     mov cx, ax
-   111 000001B0 D1E9                <1>     shr cx, 1
-   112 000001B2 01CB                <1>     add bx, cx                           ; offset = cluster + cluster/2
-   113 000001B4 8B970005            <1>     mov dx, [FAT_BUF + bx]
-   114 000001B8 A90100              <1>     test ax, 1
-   115 000001BB 7405                <1>     jz .even
-   116 000001BD C1EA04              <1>     shr dx, 4                            ; odd cluster -> high 12 bits
-   117 000001C0 EB04                <1>     jmp .store
+   106 000001A7 53                  <1>     push bx
+   107 000001A8 51                  <1>     push cx
+   108 000001A9 52                  <1>     push dx
+   109 000001AA 89C3                <1>     mov bx, ax
+   110 000001AC 89C1                <1>     mov cx, ax
+   111 000001AE D1E9                <1>     shr cx, 1
+   112 000001B0 01CB                <1>     add bx, cx                           ; offset = cluster + cluster/2
+   113 000001B2 8B970005            <1>     mov dx, [FAT_BUF + bx]
+   114 000001B6 A90100              <1>     test ax, 1
+   115 000001B9 7405                <1>     jz .even
+   116 000001BB C1EA04              <1>     shr dx, 4                            ; odd cluster -> high 12 bits
+   117 000001BE EB04                <1>     jmp .store
    118                              <1> .even:
-   119 000001C2 81E2FF0F            <1>     and dx, 0x0FFF                       ; even cluster -> low 12 bits
+   119 000001C0 81E2FF0F            <1>     and dx, 0x0FFF                       ; even cluster -> low 12 bits
    120                              <1> .store:
-   121 000001C6 89D0                <1>     mov ax, dx
-   122 000001C8 5A                  <1>     pop dx
-   123 000001C9 59                  <1>     pop cx
-   124 000001CA 5B                  <1>     pop bx
-   125 000001CB C3                  <1>     ret
+   121 000001C4 89D0                <1>     mov ax, dx
+   122 000001C6 5A                  <1>     pop dx
+   123 000001C7 59                  <1>     pop cx
+   124 000001C8 5B                  <1>     pop bx
+   125 000001C9 C3                  <1>     ret
    126                              <1> 
-   127 000001CC 4B45524E454C202042- <1> kernel_name:  db 'KERNEL  BIN'
-   127 000001D5 494E                <1>
-   128 000001D7 0000                <1> fat_start:    dw 0
-   129 000001D9 0000                <1> root_start:   dw 0
-   130 000001DB 0000                <1> root_sectors: dw 0
-   131 000001DD 0000                <1> data_start:   dw 0
-   132 000001DF 0000                <1> load_off:     dw 0
-   133 000001E1 4B45524E454C2E4249- <1> msg_nokernel: db 'KERNEL.BIN not found', 0x0D, 0x0A, 0
-   133 000001EA 4E206E6F7420666F75- <1>
-   133 000001F3 6E640D0A00          <1>
+   127 000001CA 4B45524E454C202042- <1> kernel_name:  db 'KERNEL  BIN'
+   127 000001D3 494E                <1>
+   128 000001D5 0000                <1> fat_start:    dw 0
+   129 000001D7 0000                <1> root_start:   dw 0
+   130 000001D9 0000                <1> root_sectors: dw 0
+   131 000001DB 0000                <1> data_start:   dw 0
+   132 000001DD 0000                <1> load_off:     dw 0
+   133 000001DF 4B45524E454C2E4249- <1> msg_nokernel: db 'KERNEL.BIN not found', 0x0D, 0x0A, 0
+   133 000001E8 4E206E6F7420666F75- <1>
+   133 000001F1 6E640D0A00          <1>
    122                                  %include "fat32.asm"
      1                              <1> ; FAT32 driver. BPB lives in the partition VBR (located by fat_detect), all
      2                              <1> ; sectors are absolute LBAs (partition_start already folded in). The FAT is too
@@ -267,173 +267,173 @@
      8                              <1> 
      9                              <1> ; read CX sectors from 32-bit LBA EAX into ES:BX
     10                              <1> read_sectors32:
-    11 000001F8 890E[B900]          <1>     mov [dap_count], cx
-    12 000001FC 891E[BB00]          <1>     mov [dap_off], bx
-    13 00000200 8C06[BD00]          <1>     mov [dap_seg], es
-    14 00000204 66A3[BF00]          <1>     mov [dap_lba], eax
-    15 00000208 66C706[C300]000000- <1>     mov dword [dap_lba+4], 0
-    15 00000210 00                  <1>
-    16 00000211 B442                <1>     mov ah, 0x42
-    17 00000213 8A16[B600]          <1>     mov dl, [drive]
-    18 00000217 BE[B700]            <1>     mov si, dap
-    19 0000021A CD13                <1>     int 0x13
-    20 0000021C 7201                <1>     jc .fail
-    21 0000021E C3                  <1>     ret
+    11 000001F6 890E[B700]          <1>     mov [dap_count], cx
+    12 000001FA 891E[B900]          <1>     mov [dap_off], bx
+    13 000001FE 8C06[BB00]          <1>     mov [dap_seg], es
+    14 00000202 66A3[BD00]          <1>     mov [dap_lba], eax
+    15 00000206 66C706[C100]000000- <1>     mov dword [dap_lba+4], 0
+    15 0000020E 00                  <1>
+    16 0000020F B442                <1>     mov ah, 0x42
+    17 00000211 8A16[B400]          <1>     mov dl, [drive]
+    18 00000215 BE[B500]            <1>     mov si, dap
+    19 00000218 CD13                <1>     int 0x13
+    20 0000021A 7201                <1>     jc .fail
+    21 0000021C C3                  <1>     ret
     22                              <1> .fail:
-    23 0000021F BE[D000]            <1>     mov si, msg_diskerr
-    24 00000222 E879FE              <1>     call print_string
-    25 00000225 E98AFE              <1>     jmp halt
+    23 0000021D BE[CE00]            <1>     mov si, msg_diskerr
+    24 00000220 E879FE              <1>     call print_string
+    25 00000223 E98AFE              <1>     jmp halt
     26                              <1> 
     27                              <1> ; EAX = cluster -> EAX = absolute LBA of its first sector
     28                              <1> cluster_to_lba:
-    29 00000228 6683E802            <1>     sub eax, 2
-    30 0000022C 660FB60E[9803]      <1>     movzx ecx, byte [f32_spc]
-    31 00000232 66F7E1              <1>     mul ecx
-    32 00000235 660306[A503]        <1>     add eax, [f32_data_start]
-    33 0000023A C3                  <1>     ret
+    29 00000226 6683E802            <1>     sub eax, 2
+    30 0000022A 660FB60E[9603]      <1>     movzx ecx, byte [f32_spc]
+    31 00000230 66F7E1              <1>     mul ecx
+    32 00000233 660306[A303]        <1>     add eax, [f32_data_start]
+    33 00000238 C3                  <1>     ret
     34                              <1> 
     35                              <1> ; EAX = cluster -> EAX = next cluster (28-bit, masked)
     36                              <1> fat32_next:
-    37 0000023B 6653                <1>     push ebx
-    38 0000023D 6651                <1>     push ecx
-    39 0000023F 6652                <1>     push edx
-    40 00000241 06                  <1>     push es
-    41 00000242 6689C2              <1>     mov edx, eax
-    42 00000245 66C1E202            <1>     shl edx, 2                   ; byte offset of entry in the FAT
-    43 00000249 6689D0              <1>     mov eax, edx
-    44 0000024C 66C1E809            <1>     shr eax, 9                   ; / 512 = sector index
-    45 00000250 660306[A103]        <1>     add eax, [f32_fat_start]
-    46 00000255 6681E2FF010000      <1>     and edx, 0x1FF               ; offset within that sector
-    47 0000025C 52                  <1>     push dx                      ; read_sectors32 clobbers DX (dl=drive)
-    48 0000025D 31DB                <1>     xor bx, bx
-    49 0000025F 8EC3                <1>     mov es, bx
-    50 00000261 BB000A              <1>     mov bx, FAT_SEC
-    51 00000264 B90100              <1>     mov cx, 1
-    52 00000267 E88EFF              <1>     call read_sectors32
-    53 0000026A 5B                  <1>     pop bx                       ; recover the entry offset
-    54 0000026B 668B87000A          <1>     mov eax, [FAT_SEC + bx]
-    55 00000270 6625FFFFFF0F        <1>     and eax, 0x0FFFFFFF
-    56 00000276 07                  <1>     pop es
-    57 00000277 665A                <1>     pop edx
-    58 00000279 6659                <1>     pop ecx
-    59 0000027B 665B                <1>     pop ebx
-    60 0000027D C3                  <1>     ret
+    37 00000239 6653                <1>     push ebx
+    38 0000023B 6651                <1>     push ecx
+    39 0000023D 6652                <1>     push edx
+    40 0000023F 06                  <1>     push es
+    41 00000240 6689C2              <1>     mov edx, eax
+    42 00000243 66C1E202            <1>     shl edx, 2                   ; byte offset of entry in the FAT
+    43 00000247 6689D0              <1>     mov eax, edx
+    44 0000024A 66C1E809            <1>     shr eax, 9                   ; / 512 = sector index
+    45 0000024E 660306[9F03]        <1>     add eax, [f32_fat_start]
+    46 00000253 6681E2FF010000      <1>     and edx, 0x1FF               ; offset within that sector
+    47 0000025A 52                  <1>     push dx                      ; read_sectors32 clobbers DX (dl=drive)
+    48 0000025B 31DB                <1>     xor bx, bx
+    49 0000025D 8EC3                <1>     mov es, bx
+    50 0000025F BB000A              <1>     mov bx, FAT_SEC
+    51 00000262 B90100              <1>     mov cx, 1
+    52 00000265 E88EFF              <1>     call read_sectors32
+    53 00000268 5B                  <1>     pop bx                       ; recover the entry offset
+    54 00000269 668B87000A          <1>     mov eax, [FAT_SEC + bx]
+    55 0000026E 6625FFFFFF0F        <1>     and eax, 0x0FFFFFFF
+    56 00000274 07                  <1>     pop es
+    57 00000275 665A                <1>     pop edx
+    58 00000277 6659                <1>     pop ecx
+    59 00000279 665B                <1>     pop ebx
+    60 0000027B C3                  <1>     ret
     61                              <1> 
     62                              <1> ; load the file named at [find_name] to [dest_seg]:0; CF set if not found
     63                              <1> fat32_load_file:
-    64 0000027E 8B1E[9303]          <1>     mov bx, [bpb_ptr]
-    65 00000282 8B470E              <1>     mov ax, [bx+0x0E]
-    66 00000285 A3[9503]            <1>     mov [f32_reserved], ax
-    67 00000288 8A4710              <1>     mov al, [bx+0x10]
-    68 0000028B A2[9703]            <1>     mov [f32_numfats], al
-    69 0000028E 8A470D              <1>     mov al, [bx+0x0D]
-    70 00000291 A2[9803]            <1>     mov [f32_spc], al
-    71 00000294 668B4724            <1>     mov eax, [bx+0x24]
-    72 00000298 66A3[9903]          <1>     mov [f32_spf], eax
-    73 0000029C 668B472C            <1>     mov eax, [bx+0x2C]
-    74 000002A0 66A3[9D03]          <1>     mov [f32_rootclus], eax
+    64 0000027C 8B1E[9103]          <1>     mov bx, [bpb_ptr]
+    65 00000280 8B470E              <1>     mov ax, [bx+0x0E]
+    66 00000283 A3[9303]            <1>     mov [f32_reserved], ax
+    67 00000286 8A4710              <1>     mov al, [bx+0x10]
+    68 00000289 A2[9503]            <1>     mov [f32_numfats], al
+    69 0000028C 8A470D              <1>     mov al, [bx+0x0D]
+    70 0000028F A2[9603]            <1>     mov [f32_spc], al
+    71 00000292 668B4724            <1>     mov eax, [bx+0x24]
+    72 00000296 66A3[9703]          <1>     mov [f32_spf], eax
+    73 0000029A 668B472C            <1>     mov eax, [bx+0x2C]
+    74 0000029E 66A3[9B03]          <1>     mov [f32_rootclus], eax
     75                              <1> 
-    76 000002A4 660FB706[9503]      <1>     movzx eax, word [f32_reserved]        ; fat_start = part_start + reserved
-    77 000002AA 660306[8F03]        <1>     add eax, [partition_start]
-    78 000002AF 66A3[A103]          <1>     mov [f32_fat_start], eax
+    76 000002A2 660FB706[9303]      <1>     movzx eax, word [f32_reserved]        ; fat_start = part_start + reserved
+    77 000002A8 660306[8D03]        <1>     add eax, [partition_start]
+    78 000002AD 66A3[9F03]          <1>     mov [f32_fat_start], eax
     79                              <1> 
-    80 000002B3 660FB606[9703]      <1>     movzx eax, byte [f32_numfats]         ; data_start = + num_fats*spf32
-    81 000002B9 668B0E[9903]        <1>     mov ecx, [f32_spf]
-    82 000002BE 66F7E1              <1>     mul ecx
-    83 000002C1 660FB71E[9503]      <1>     movzx ebx, word [f32_reserved]
-    84 000002C7 6601D8              <1>     add eax, ebx
-    85 000002CA 660306[8F03]        <1>     add eax, [partition_start]
-    86 000002CF 66A3[A503]          <1>     mov [f32_data_start], eax
+    80 000002B1 660FB606[9503]      <1>     movzx eax, byte [f32_numfats]         ; data_start = + num_fats*spf32
+    81 000002B7 668B0E[9703]        <1>     mov ecx, [f32_spf]
+    82 000002BC 66F7E1              <1>     mul ecx
+    83 000002BF 660FB71E[9303]      <1>     movzx ebx, word [f32_reserved]
+    84 000002C5 6601D8              <1>     add eax, ebx
+    85 000002C8 660306[8D03]        <1>     add eax, [partition_start]
+    86 000002CD 66A3[A303]          <1>     mov [f32_data_start], eax
     87                              <1> 
-    88 000002D3 66A1[9D03]          <1>     mov eax, [f32_rootclus]               ; scan root dir (a cluster chain)
-    89 000002D7 66A3[A903]          <1>     mov [f32_dirclus], eax
+    88 000002D1 66A1[9B03]          <1>     mov eax, [f32_rootclus]               ; scan root dir (a cluster chain)
+    89 000002D5 66A3[A703]          <1>     mov [f32_dirclus], eax
     90                              <1> .dir_cluster:
-    91 000002DB 66A1[A903]          <1>     mov eax, [f32_dirclus]
-    92 000002DF E846FF              <1>     call cluster_to_lba
-    93 000002E2 31DB                <1>     xor bx, bx
-    94 000002E4 8EC3                <1>     mov es, bx
-    95 000002E6 BB0010              <1>     mov bx, F32_DIR
-    96 000002E9 0FB60E[9803]        <1>     movzx cx, byte [f32_spc]
-    97 000002EE E807FF              <1>     call read_sectors32
+    91 000002D9 66A1[A703]          <1>     mov eax, [f32_dirclus]
+    92 000002DD E846FF              <1>     call cluster_to_lba
+    93 000002E0 31DB                <1>     xor bx, bx
+    94 000002E2 8EC3                <1>     mov es, bx
+    95 000002E4 BB0010              <1>     mov bx, F32_DIR
+    96 000002E7 0FB60E[9603]        <1>     movzx cx, byte [f32_spc]
+    97 000002EC E807FF              <1>     call read_sectors32
     98                              <1> 
-    99 000002F1 BF0010              <1>     mov di, F32_DIR
-   100 000002F4 0FB60E[9803]        <1>     movzx cx, byte [f32_spc]              ; entries in this cluster = spc*512/32
-   101 000002F9 C1E109              <1>     shl cx, 9
-   102 000002FC C1E905              <1>     shr cx, 5
+    99 000002EF BF0010              <1>     mov di, F32_DIR
+   100 000002F2 0FB60E[9603]        <1>     movzx cx, byte [f32_spc]              ; entries in this cluster = spc*512/32
+   101 000002F7 C1E109              <1>     shl cx, 9
+   102 000002FA C1E905              <1>     shr cx, 5
    103                              <1> .scan:
-   104 000002FF 803D00              <1>     cmp byte [di], 0x00
-   105 00000302 742F                <1>     je .notfound
-   106 00000304 803DE5              <1>     cmp byte [di], 0xE5
-   107 00000307 740F                <1>     je .skip
-   108 00000309 51                  <1>     push cx
-   109 0000030A 57                  <1>     push di
-   110 0000030B 8B36[C800]          <1>     mov si, [find_name]
-   111 0000030F B90B00              <1>     mov cx, 11
-   112 00000312 F3A6                <1>     repe cmpsb
-   113 00000314 5F                  <1>     pop di
-   114 00000315 59                  <1>     pop cx
-   115 00000316 741D                <1>     je .found
+   104 000002FD 803D00              <1>     cmp byte [di], 0x00
+   105 00000300 742F                <1>     je .notfound
+   106 00000302 803DE5              <1>     cmp byte [di], 0xE5
+   107 00000305 740F                <1>     je .skip
+   108 00000307 51                  <1>     push cx
+   109 00000308 57                  <1>     push di
+   110 00000309 8B36[C600]          <1>     mov si, [find_name]
+   111 0000030D B90B00              <1>     mov cx, 11
+   112 00000310 F3A6                <1>     repe cmpsb
+   113 00000312 5F                  <1>     pop di
+   114 00000313 59                  <1>     pop cx
+   115 00000314 741D                <1>     je .found
    116                              <1> .skip:
-   117 00000318 83C720              <1>     add di, 32
-   118 0000031B 49                  <1>     dec cx
-   119 0000031C 75E1                <1>     jnz .scan
-   120 0000031E 66A1[A903]          <1>     mov eax, [f32_dirclus]               ; next directory cluster
-   121 00000322 E816FF              <1>     call fat32_next
-   122 00000325 66A3[A903]          <1>     mov [f32_dirclus], eax
-   123 00000329 663DF8FFFF0F        <1>     cmp eax, 0x0FFFFFF8
-   124 0000032F 7302                <1>     jae .notfound
-   125 00000331 EBA8                <1>     jmp .dir_cluster
+   117 00000316 83C720              <1>     add di, 32
+   118 00000319 49                  <1>     dec cx
+   119 0000031A 75E1                <1>     jnz .scan
+   120 0000031C 66A1[A703]          <1>     mov eax, [f32_dirclus]               ; next directory cluster
+   121 00000320 E816FF              <1>     call fat32_next
+   122 00000323 66A3[A703]          <1>     mov [f32_dirclus], eax
+   123 00000327 663DF8FFFF0F        <1>     cmp eax, 0x0FFFFFF8
+   124 0000032D 7302                <1>     jae .notfound
+   125 0000032F EBA8                <1>     jmp .dir_cluster
    126                              <1> 
    127                              <1> .notfound:
-   128 00000333 F9                  <1>     stc
-   129 00000334 C3                  <1>     ret
+   128 00000331 F9                  <1>     stc
+   129 00000332 C3                  <1>     ret
    130                              <1> 
    131                              <1> .found:
-   132 00000335 668B451C            <1>     mov eax, [di+0x1C]                   ; file size
-   133 00000339 66A3[CC00]          <1>     mov [file_size], eax
-   134 0000033D 660FB74514          <1>     movzx eax, word [di+0x14]            ; first cluster = high<<16 | low
-   135 00000342 66C1E010            <1>     shl eax, 16
-   136 00000346 8B451A              <1>     mov ax, [di+0x1A]
-   137 00000349 66A3[AD03]          <1>     mov [f32_cluster], eax
-   138 0000034D C706[B103]0000      <1>     mov word [f32_load_off], 0
+   132 00000333 668B451C            <1>     mov eax, [di+0x1C]                   ; file size
+   133 00000337 66A3[CA00]          <1>     mov [file_size], eax
+   134 0000033B 660FB74514          <1>     movzx eax, word [di+0x14]            ; first cluster = high<<16 | low
+   135 00000340 66C1E010            <1>     shl eax, 16
+   136 00000344 8B451A              <1>     mov ax, [di+0x1A]
+   137 00000347 66A3[AB03]          <1>     mov [f32_cluster], eax
+   138 0000034B C706[AF03]0000      <1>     mov word [f32_load_off], 0
    139                              <1> 
    140                              <1> .load:
-   141 00000353 66A1[AD03]          <1>     mov eax, [f32_cluster]
-   142 00000357 E8CEFE              <1>     call cluster_to_lba
-   143 0000035A 8B1E[CA00]          <1>     mov bx, [dest_seg]
-   144 0000035E 8EC3                <1>     mov es, bx
-   145 00000360 8B1E[B103]          <1>     mov bx, [f32_load_off]
-   146 00000364 0FB60E[9803]        <1>     movzx cx, byte [f32_spc]
-   147 00000369 E88CFE              <1>     call read_sectors32
-   148 0000036C 0FB606[9803]        <1>     movzx ax, byte [f32_spc]
-   149 00000371 C1E009              <1>     shl ax, 9
-   150 00000374 0106[B103]          <1>     add [f32_load_off], ax
-   151 00000378 66A1[AD03]          <1>     mov eax, [f32_cluster]
-   152 0000037C E8BCFE              <1>     call fat32_next
-   153 0000037F 66A3[AD03]          <1>     mov [f32_cluster], eax
-   154 00000383 663DF8FFFF0F        <1>     cmp eax, 0x0FFFFFF8
-   155 00000389 7302                <1>     jae .done
-   156 0000038B EBC6                <1>     jmp .load
+   141 00000351 66A1[AB03]          <1>     mov eax, [f32_cluster]
+   142 00000355 E8CEFE              <1>     call cluster_to_lba
+   143 00000358 8B1E[C800]          <1>     mov bx, [dest_seg]
+   144 0000035C 8EC3                <1>     mov es, bx
+   145 0000035E 8B1E[AF03]          <1>     mov bx, [f32_load_off]
+   146 00000362 0FB60E[9603]        <1>     movzx cx, byte [f32_spc]
+   147 00000367 E88CFE              <1>     call read_sectors32
+   148 0000036A 0FB606[9603]        <1>     movzx ax, byte [f32_spc]
+   149 0000036F C1E009              <1>     shl ax, 9
+   150 00000372 0106[AF03]          <1>     add [f32_load_off], ax
+   151 00000376 66A1[AB03]          <1>     mov eax, [f32_cluster]
+   152 0000037A E8BCFE              <1>     call fat32_next
+   153 0000037D 66A3[AB03]          <1>     mov [f32_cluster], eax
+   154 00000381 663DF8FFFF0F        <1>     cmp eax, 0x0FFFFFF8
+   155 00000387 7302                <1>     jae .done
+   156 00000389 EBC6                <1>     jmp .load
    157                              <1> .done:
-   158 0000038D F8                  <1>     clc
-   159 0000038E C3                  <1>     ret
+   158 0000038B F8                  <1>     clc
+   159 0000038C C3                  <1>     ret
    160                              <1> 
-   161 0000038F 00000000            <1> partition_start: dd 0
-   162 00000393 0000                <1> bpb_ptr:         dw 0
-   163 00000395 0000                <1> f32_reserved:    dw 0
-   164 00000397 00                  <1> f32_numfats:     db 0
-   165 00000398 00                  <1> f32_spc:         db 0
-   166 00000399 00000000            <1> f32_spf:         dd 0
-   167 0000039D 00000000            <1> f32_rootclus:    dd 0
-   168 000003A1 00000000            <1> f32_fat_start:   dd 0
-   169 000003A5 00000000            <1> f32_data_start:  dd 0
-   170 000003A9 00000000            <1> f32_dirclus:     dd 0
-   171 000003AD 00000000            <1> f32_cluster:     dd 0
-   172 000003B1 0000                <1> f32_load_off:    dw 0
-   173 000003B3 4B45524E454C2E4249- <1> msg_nokernel32:  db 'KERNEL.BIN not found (fat32)', 0x0D, 0x0A, 0
-   173 000003BC 4E206E6F7420666F75- <1>
-   173 000003C5 6E6420286661743332- <1>
-   173 000003CE 290D0A00            <1>
+   161 0000038D 00000000            <1> partition_start: dd 0
+   162 00000391 0000                <1> bpb_ptr:         dw 0
+   163 00000393 0000                <1> f32_reserved:    dw 0
+   164 00000395 00                  <1> f32_numfats:     db 0
+   165 00000396 00                  <1> f32_spc:         db 0
+   166 00000397 00000000            <1> f32_spf:         dd 0
+   167 0000039B 00000000            <1> f32_rootclus:    dd 0
+   168 0000039F 00000000            <1> f32_fat_start:   dd 0
+   169 000003A3 00000000            <1> f32_data_start:  dd 0
+   170 000003A7 00000000            <1> f32_dirclus:     dd 0
+   171 000003AB 00000000            <1> f32_cluster:     dd 0
+   172 000003AF 0000                <1> f32_load_off:    dw 0
+   173 000003B1 4B45524E454C2E4249- <1> msg_nokernel32:  db 'KERNEL.BIN not found (fat32)', 0x0D, 0x0A, 0
+   173 000003BA 4E206E6F7420666F75- <1>
+   173 000003C3 6E6420286661743332- <1>
+   173 000003CC 290D0A00            <1>
    123                                  %include "menu.asm"
      1                              <1> ; Boot menu (real mode). Reads NYX.CFG from the FAT volume, parses timeout/
      2                              <1> ; default/entries, draws a text-mode menu, and lets the user pick with the
@@ -449,416 +449,416 @@
     12                              <1> 
     13                              <1> ; try NYX.CFG -> menu -> load choice; if no config, fall back to KERNEL.BIN
     14                              <1> menu_main:
-    15 000003D2 C706[C800][C706]    <1>     mov word [find_name], cfg_name
-    16 000003D8 C706[CA00]0004      <1>     mov word [dest_seg], CFG_SEG
-    17 000003DE E886FC              <1>     call fat_load_file
-    18 000003E1 7219                <1>     jc .fallback
-    19 000003E3 E83100              <1>     call parse_config
-    20 000003E6 803E[D606]00        <1>     cmp byte [num_entries], 0
-    21 000003EB 740F                <1>     je .fallback
-    22 000003ED E84001              <1>     call run_menu                     ; sets [find_name] = chosen 8.3 name
-    23 000003F0 C706[CA00]0010      <1>     mov word [dest_seg], KERNEL_SEG
-    24 000003F6 E86EFC              <1>     call fat_load_file
-    25 000003F9 7213                <1>     jc .err
-    26 000003FB C3                  <1>     ret
+    15 000003D0 C706[C600][C506]    <1>     mov word [find_name], cfg_name
+    16 000003D6 C706[C800]0004      <1>     mov word [dest_seg], CFG_SEG
+    17 000003DC E886FC              <1>     call fat_load_file
+    18 000003DF 7219                <1>     jc .fallback
+    19 000003E1 E83100              <1>     call parse_config
+    20 000003E4 803E[D406]00        <1>     cmp byte [num_entries], 0
+    21 000003E9 740F                <1>     je .fallback
+    22 000003EB E84001              <1>     call run_menu                     ; sets [find_name] = chosen 8.3 name
+    23 000003EE C706[C800]0010      <1>     mov word [dest_seg], KERNEL_SEG
+    24 000003F4 E86EFC              <1>     call fat_load_file
+    25 000003F7 7213                <1>     jc .err
+    26 000003F9 C3                  <1>     ret
     27                              <1> .fallback:
-    28 000003FC C706[C800][CC01]    <1>     mov word [find_name], kernel_name
-    29 00000402 C706[CA00]0010      <1>     mov word [dest_seg], KERNEL_SEG
-    30 00000408 E85CFC              <1>     call fat_load_file
-    31 0000040B 7201                <1>     jc .err
-    32 0000040D C3                  <1>     ret
+    28 000003FA C706[C600][CA01]    <1>     mov word [find_name], kernel_name
+    29 00000400 C706[C800]0010      <1>     mov word [dest_seg], KERNEL_SEG
+    30 00000406 E85CFC              <1>     call fat_load_file
+    31 00000409 7201                <1>     jc .err
+    32 0000040B C3                  <1>     ret
     33                              <1> .err:
-    34 0000040E BE[FD07]            <1>     mov si, msg_loaderr
-    35 00000411 E88AFC              <1>     call print_string
-    36 00000414 E99BFC              <1>     jmp halt
+    34 0000040C BE[FB07]            <1>     mov si, msg_loaderr
+    35 0000040F E88AFC              <1>     call print_string
+    36 00000412 E99BFC              <1>     jmp halt
     37                              <1> 
     38                              <1> ; ---- config parsing --------------------------------------------------------
     39                              <1> parse_config:
-    40 00000417 31C0                <1>     xor ax, ax
-    41 00000419 8EC0                <1>     mov es, ax                        ; name_to_83's stosb writes to ES:DI
-    42 0000041B 8B1E[CC00]          <1>     mov bx, [file_size]
-    43 0000041F C687004000          <1>     mov byte [CFG_BUF+bx], 0          ; NUL-terminate the loaded text
-    44 00000424 BE0040              <1>     mov si, CFG_BUF
-    45 00000427 E86400              <1>     call parse_uint
-    46 0000042A A3[D206]            <1>     mov [cfg_timeout], ax
-    47 0000042D E85E00              <1>     call parse_uint
-    48 00000430 A3[D406]            <1>     mov [cfg_default], ax
-    49 00000433 C606[D606]00        <1>     mov byte [num_entries], 0
+    40 00000415 31C0                <1>     xor ax, ax
+    41 00000417 8EC0                <1>     mov es, ax                        ; name_to_83's stosb writes to ES:DI
+    42 00000419 8B1E[CA00]          <1>     mov bx, [file_size]
+    43 0000041D C687004000          <1>     mov byte [CFG_BUF+bx], 0          ; NUL-terminate the loaded text
+    44 00000422 BE0040              <1>     mov si, CFG_BUF
+    45 00000425 E86400              <1>     call parse_uint
+    46 00000428 A3[D006]            <1>     mov [cfg_timeout], ax
+    47 0000042B E85E00              <1>     call parse_uint
+    48 0000042E A3[D206]            <1>     mov [cfg_default], ax
+    49 00000431 C606[D406]00        <1>     mov byte [num_entries], 0
     50                              <1> .entry:
-    51 00000438 E87200              <1>     call skip_eol
-    52 0000043B 8A04                <1>     mov al, [si]
-    53 0000043D 08C0                <1>     or al, al
-    54 0000043F 744C                <1>     jz .done
-    55 00000441 0FB61E[D606]        <1>     movzx bx, byte [num_entries]      ; entry_label[n] = start of label
-    56 00000446 D1E3                <1>     shl bx, 1
-    57 00000448 89B7[E506]          <1>     mov [entry_label+bx], si
+    51 00000436 E87200              <1>     call skip_eol
+    52 00000439 8A04                <1>     mov al, [si]
+    53 0000043B 08C0                <1>     or al, al
+    54 0000043D 744C                <1>     jz .done
+    55 0000043F 0FB61E[D406]        <1>     movzx bx, byte [num_entries]      ; entry_label[n] = start of label
+    56 00000444 D1E3                <1>     shl bx, 1
+    57 00000446 89B7[E306]          <1>     mov [entry_label+bx], si
     58                              <1> .lbl:
-    59 0000044C 8A04                <1>     mov al, [si]
-    60 0000044E 3C20                <1>     cmp al, ' '                       ; space separates label from filename
-    61 00000450 7408                <1>     je .lblend
-    62 00000452 E86600              <1>     call is_term                      ; NUL/CR/LF = malformed line
-    63 00000455 7436                <1>     je .done
-    64 00000457 46                  <1>     inc si
-    65 00000458 EBF2                <1>     jmp .lbl
+    59 0000044A 8A04                <1>     mov al, [si]
+    60 0000044C 3C20                <1>     cmp al, ' '                       ; space separates label from filename
+    61 0000044E 7408                <1>     je .lblend
+    62 00000450 E86600              <1>     call is_term                      ; NUL/CR/LF = malformed line
+    63 00000453 7436                <1>     je .done
+    64 00000455 46                  <1>     inc si
+    65 00000456 EBF2                <1>     jmp .lbl
     66                              <1> .lblend:
-    67 0000045A C60400              <1>     mov byte [si], 0                  ; terminate the label
-    68 0000045D 46                  <1>     inc si
+    67 00000458 C60400              <1>     mov byte [si], 0                  ; terminate the label
+    68 0000045B 46                  <1>     inc si
     69                              <1> .sp:
-    70 0000045E 803C20              <1>     cmp byte [si], ' '
-    71 00000461 7503                <1>     jne .conv
-    72 00000463 46                  <1>     inc si
-    73 00000464 EBF8                <1>     jmp .sp
+    70 0000045C 803C20              <1>     cmp byte [si], ' '
+    71 0000045F 7503                <1>     jne .conv
+    72 00000461 46                  <1>     inc si
+    73 00000462 EBF8                <1>     jmp .sp
     74                              <1> .conv:
-    75 00000466 0FB606[D606]        <1>     movzx ax, byte [num_entries]      ; dest = entry_name + n*11
-    76 0000046B BB0B00              <1>     mov bx, 11
-    77 0000046E F7E3                <1>     mul bx
-    78 00000470 05[F506]            <1>     add ax, entry_name
-    79 00000473 89C7                <1>     mov di, ax
-    80 00000475 E86400              <1>     call name_to_83
+    75 00000464 0FB606[D406]        <1>     movzx ax, byte [num_entries]      ; dest = entry_name + n*11
+    76 00000469 BB0B00              <1>     mov bx, 11
+    77 0000046C F7E3                <1>     mul bx
+    78 0000046E 05[F306]            <1>     add ax, entry_name
+    79 00000471 89C7                <1>     mov di, ax
+    80 00000473 E86400              <1>     call name_to_83
     81                              <1> .fn:
-    82 00000478 8A04                <1>     mov al, [si]
-    83 0000047A E83E00              <1>     call is_term
-    84 0000047D 7403                <1>     je .fnend
-    85 0000047F 46                  <1>     inc si
-    86 00000480 EBF6                <1>     jmp .fn
+    82 00000476 8A04                <1>     mov al, [si]
+    83 00000478 E83E00              <1>     call is_term
+    84 0000047B 7403                <1>     je .fnend
+    85 0000047D 46                  <1>     inc si
+    86 0000047E EBF6                <1>     jmp .fn
     87                              <1> .fnend:
-    88 00000482 FE06[D606]          <1>     inc byte [num_entries]
-    89 00000486 803E[D606]08        <1>     cmp byte [num_entries], MAX_ENTRIES
-    90 0000048B 72AB                <1>     jb .entry
+    88 00000480 FE06[D406]          <1>     inc byte [num_entries]
+    89 00000484 803E[D406]08        <1>     cmp byte [num_entries], MAX_ENTRIES
+    90 00000489 72AB                <1>     jb .entry
     91                              <1> .done:
-    92 0000048D C3                  <1>     ret
+    92 0000048B C3                  <1>     ret
     93                              <1> 
     94                              <1> parse_uint:                           ; SI -> AX = number, SI past this line
-    95 0000048E 31C0                <1>     xor ax, ax
+    95 0000048C 31C0                <1>     xor ax, ax
     96                              <1> .d:
-    97 00000490 8A0C                <1>     mov cl, [si]
-    98 00000492 80F930              <1>     cmp cl, '0'
-    99 00000495 7212                <1>     jb .end
-   100 00000497 80F939              <1>     cmp cl, '9'
-   101 0000049A 770D                <1>     ja .end
-   102 0000049C 6BC00A              <1>     imul ax, ax, 10
-   103 0000049F 80E930              <1>     sub cl, '0'
-   104 000004A2 30ED                <1>     xor ch, ch
-   105 000004A4 01C8                <1>     add ax, cx
-   106 000004A6 46                  <1>     inc si
-   107 000004A7 EBE7                <1>     jmp .d
+    97 0000048E 8A0C                <1>     mov cl, [si]
+    98 00000490 80F930              <1>     cmp cl, '0'
+    99 00000493 7212                <1>     jb .end
+   100 00000495 80F939              <1>     cmp cl, '9'
+   101 00000498 770D                <1>     ja .end
+   102 0000049A 6BC00A              <1>     imul ax, ax, 10
+   103 0000049D 80E930              <1>     sub cl, '0'
+   104 000004A0 30ED                <1>     xor ch, ch
+   105 000004A2 01C8                <1>     add ax, cx
+   106 000004A4 46                  <1>     inc si
+   107 000004A5 EBE7                <1>     jmp .d
    108                              <1> .end:
-   109 000004A9 E80100              <1>     call skip_eol
-   110 000004AC C3                  <1>     ret
+   109 000004A7 E80100              <1>     call skip_eol
+   110 000004AA C3                  <1>     ret
    111                              <1> 
    112                              <1> skip_eol:                             ; advance SI past CR/LF
-   113 000004AD 803C0D              <1>     cmp byte [si], 0x0D
-   114 000004B0 7406                <1>     je .a
-   115 000004B2 803C0A              <1>     cmp byte [si], 0x0A
-   116 000004B5 7401                <1>     je .a
-   117 000004B7 C3                  <1>     ret
+   113 000004AB 803C0D              <1>     cmp byte [si], 0x0D
+   114 000004AE 7406                <1>     je .a
+   115 000004B0 803C0A              <1>     cmp byte [si], 0x0A
+   116 000004B3 7401                <1>     je .a
+   117 000004B5 C3                  <1>     ret
    118                              <1> .a:
-   119 000004B8 46                  <1>     inc si
-   120 000004B9 EBF2                <1>     jmp skip_eol
+   119 000004B6 46                  <1>     inc si
+   120 000004B7 EBF2                <1>     jmp skip_eol
    121                              <1> 
    122                              <1> is_term:                              ; ZF=1 if AL is NUL/space/CR/LF
-   123 000004BB 3C00                <1>     cmp al, 0
-   124 000004BD 740F                <1>     je .y
-   125 000004BF 3C20                <1>     cmp al, ' '
-   126 000004C1 740B                <1>     je .y
-   127 000004C3 3C0D                <1>     cmp al, 0x0D
-   128 000004C5 7407                <1>     je .y
-   129 000004C7 3C0A                <1>     cmp al, 0x0A
-   130 000004C9 7403                <1>     je .y
-   131 000004CB 08C0                <1>     or al, al                         ; AL nonzero here -> ZF=0
-   132 000004CD C3                  <1>     ret
+   123 000004B9 3C00                <1>     cmp al, 0
+   124 000004BB 740F                <1>     je .y
+   125 000004BD 3C20                <1>     cmp al, ' '
+   126 000004BF 740B                <1>     je .y
+   127 000004C1 3C0D                <1>     cmp al, 0x0D
+   128 000004C3 7407                <1>     je .y
+   129 000004C5 3C0A                <1>     cmp al, 0x0A
+   130 000004C7 7403                <1>     je .y
+   131 000004C9 08C0                <1>     or al, al                         ; AL nonzero here -> ZF=0
+   132 000004CB C3                  <1>     ret
    133                              <1> .y:
-   134 000004CE 38C0                <1>     cmp al, al                        ; ZF=1
-   135 000004D0 C3                  <1>     ret
+   134 000004CC 38C0                <1>     cmp al, al                        ; ZF=1
+   135 000004CE C3                  <1>     ret
    136                              <1> 
    137                              <1> upcase:
-   138 000004D1 3C61                <1>     cmp al, 'a'
-   139 000004D3 7206                <1>     jb .r
-   140 000004D5 3C7A                <1>     cmp al, 'z'
-   141 000004D7 7702                <1>     ja .r
-   142 000004D9 2C20                <1>     sub al, 0x20
+   138 000004CF 3C61                <1>     cmp al, 'a'
+   139 000004D1 7206                <1>     jb .r
+   140 000004D3 3C7A                <1>     cmp al, 'z'
+   141 000004D5 7702                <1>     ja .r
+   142 000004D7 2C20                <1>     sub al, 0x20
    143                              <1> .r:
-   144 000004DB C3                  <1>     ret
+   144 000004D9 C3                  <1>     ret
    145                              <1> 
    146                              <1> name_to_83:                           ; SI=filename, DI=dest(11 bytes)
-   147 000004DC 50                  <1>     push ax
-   148 000004DD 51                  <1>     push cx
-   149 000004DE 56                  <1>     push si
-   150 000004DF 57                  <1>     push di
-   151 000004E0 89FB                <1>     mov bx, di
-   152 000004E2 B020                <1>     mov al, ' '                       ; blank-fill 11
-   153 000004E4 B90B00              <1>     mov cx, 11
-   154 000004E7 F3AA                <1>     rep stosb
-   155 000004E9 89DF                <1>     mov di, bx
-   156 000004EB B90800              <1>     mov cx, 8
+   147 000004DA 50                  <1>     push ax
+   148 000004DB 51                  <1>     push cx
+   149 000004DC 56                  <1>     push si
+   150 000004DD 57                  <1>     push di
+   151 000004DE 89FB                <1>     mov bx, di
+   152 000004E0 B020                <1>     mov al, ' '                       ; blank-fill 11
+   153 000004E2 B90B00              <1>     mov cx, 11
+   154 000004E5 F3AA                <1>     rep stosb
+   155 000004E7 89DF                <1>     mov di, bx
+   156 000004E9 B90800              <1>     mov cx, 8
    157                              <1> .nm:
-   158 000004EE 8A04                <1>     mov al, [si]
-   159 000004F0 E8C8FF              <1>     call is_term
-   160 000004F3 7436                <1>     je .fin
-   161 000004F5 3C2E                <1>     cmp al, '.'
-   162 000004F7 7418                <1>     je .dot
-   163 000004F9 E8D5FF              <1>     call upcase
-   164 000004FC 8805                <1>     mov [di], al
-   165 000004FE 47                  <1>     inc di
-   166 000004FF 46                  <1>     inc si
-   167 00000500 49                  <1>     dec cx
-   168 00000501 75EB                <1>     jnz .nm
+   158 000004EC 8A04                <1>     mov al, [si]
+   159 000004EE E8C8FF              <1>     call is_term
+   160 000004F1 7436                <1>     je .fin
+   161 000004F3 3C2E                <1>     cmp al, '.'
+   162 000004F5 7418                <1>     je .dot
+   163 000004F7 E8D5FF              <1>     call upcase
+   164 000004FA 8805                <1>     mov [di], al
+   165 000004FC 47                  <1>     inc di
+   166 000004FD 46                  <1>     inc si
+   167 000004FE 49                  <1>     dec cx
+   168 000004FF 75EB                <1>     jnz .nm
    169                              <1> .sk:
-   170 00000503 8A04                <1>     mov al, [si]
-   171 00000505 E8B3FF              <1>     call is_term
-   172 00000508 7421                <1>     je .fin
-   173 0000050A 3C2E                <1>     cmp al, '.'
-   174 0000050C 7403                <1>     je .dot
-   175 0000050E 46                  <1>     inc si
-   176 0000050F EBF2                <1>     jmp .sk
+   170 00000501 8A04                <1>     mov al, [si]
+   171 00000503 E8B3FF              <1>     call is_term
+   172 00000506 7421                <1>     je .fin
+   173 00000508 3C2E                <1>     cmp al, '.'
+   174 0000050A 7403                <1>     je .dot
+   175 0000050C 46                  <1>     inc si
+   176 0000050D EBF2                <1>     jmp .sk
    177                              <1> .dot:
-   178 00000511 46                  <1>     inc si
-   179 00000512 89DF                <1>     mov di, bx
-   180 00000514 83C708              <1>     add di, 8
-   181 00000517 B90300              <1>     mov cx, 3
+   178 0000050F 46                  <1>     inc si
+   179 00000510 89DF                <1>     mov di, bx
+   180 00000512 83C708              <1>     add di, 8
+   181 00000515 B90300              <1>     mov cx, 3
    182                              <1> .ex:
-   183 0000051A 8A04                <1>     mov al, [si]
-   184 0000051C E89CFF              <1>     call is_term
-   185 0000051F 740A                <1>     je .fin
-   186 00000521 E8ADFF              <1>     call upcase
-   187 00000524 8805                <1>     mov [di], al
-   188 00000526 47                  <1>     inc di
-   189 00000527 46                  <1>     inc si
-   190 00000528 49                  <1>     dec cx
-   191 00000529 75EF                <1>     jnz .ex
+   183 00000518 8A04                <1>     mov al, [si]
+   184 0000051A E89CFF              <1>     call is_term
+   185 0000051D 740A                <1>     je .fin
+   186 0000051F E8ADFF              <1>     call upcase
+   187 00000522 8805                <1>     mov [di], al
+   188 00000524 47                  <1>     inc di
+   189 00000525 46                  <1>     inc si
+   190 00000526 49                  <1>     dec cx
+   191 00000527 75EF                <1>     jnz .ex
    192                              <1> .fin:
-   193 0000052B 5F                  <1>     pop di
-   194 0000052C 5E                  <1>     pop si
-   195 0000052D 59                  <1>     pop cx
-   196 0000052E 58                  <1>     pop ax
-   197 0000052F C3                  <1>     ret
+   193 00000529 5F                  <1>     pop di
+   194 0000052A 5E                  <1>     pop si
+   195 0000052B 59                  <1>     pop cx
+   196 0000052C 58                  <1>     pop ax
+   197 0000052D C3                  <1>     ret
    198                              <1> 
    199                              <1> ; ---- menu UI ---------------------------------------------------------------
    200                              <1> run_menu:
-   201 00000530 B80300              <1>     mov ax, 0x0003
-   202 00000533 CD10                <1>     int 0x10                          ; 80x25 colour text (clears screen)
-   203 00000535 E89900              <1>     call draw_splash
-   204 00000538 A1[D406]            <1>     mov ax, [cfg_default]
-   205 0000053B A3[D706]            <1>     mov [sel], ax
-   206 0000053E C606[E106]01        <1>     mov byte [timeout_active], 1
-   207 00000543 E88600              <1>     call get_ticks
-   208 00000546 66A3[D906]          <1>     mov [start_ticks], eax
-   209 0000054A 660FB706[D206]      <1>     movzx eax, word [cfg_timeout]
-   210 00000550 66B912000000        <1>     mov ecx, 18                        ; ~18.2 BIOS ticks/second
-   211 00000556 66F7E1              <1>     mul ecx
-   212 00000559 66A3[DD06]          <1>     mov [timeout_ticks], eax
+   201 0000052E B80300              <1>     mov ax, 0x0003
+   202 00000531 CD10                <1>     int 0x10                          ; 80x25 colour text (clears screen)
+   203 00000533 E89900              <1>     call draw_splash
+   204 00000536 A1[D206]            <1>     mov ax, [cfg_default]
+   205 00000539 A3[D506]            <1>     mov [sel], ax
+   206 0000053C C606[DF06]01        <1>     mov byte [timeout_active], 1
+   207 00000541 E88600              <1>     call get_ticks
+   208 00000544 66A3[D706]          <1>     mov [start_ticks], eax
+   209 00000548 660FB706[D006]      <1>     movzx eax, word [cfg_timeout]
+   210 0000054E 66B912000000        <1>     mov ecx, 18                        ; ~18.2 BIOS ticks/second
+   211 00000554 66F7E1              <1>     mul ecx
+   212 00000557 66A3[DB06]          <1>     mov [timeout_ticks], eax
    213                              <1> .loop:
-   214 0000055D E88A00              <1>     call draw_entries
-   215 00000560 E8B500              <1>     call draw_status
-   216 00000563 B401                <1>     mov ah, 0x01
-   217 00000565 CD16                <1>     int 0x16                          ; key waiting?
-   218 00000567 7438                <1>     jz .nokey
-   219 00000569 B400                <1>     mov ah, 0
-   220 0000056B CD16                <1>     int 0x16
-   221 0000056D C606[E106]00        <1>     mov byte [timeout_active], 0       ; any key cancels auto-boot
-   222 00000572 3C0D                <1>     cmp al, 0x0D
-   223 00000574 7447                <1>     je .select
-   224 00000576 80FC48              <1>     cmp ah, 0x48                       ; up arrow
-   225 00000579 7407                <1>     je .up
-   226 0000057B 80FC50              <1>     cmp ah, 0x50                       ; down arrow
-   227 0000057E 740F                <1>     je .down
-   228 00000580 EBDB                <1>     jmp .loop
+   214 0000055B E88A00              <1>     call draw_entries
+   215 0000055E E8B500              <1>     call draw_status
+   216 00000561 B401                <1>     mov ah, 0x01
+   217 00000563 CD16                <1>     int 0x16                          ; key waiting?
+   218 00000565 7438                <1>     jz .nokey
+   219 00000567 B400                <1>     mov ah, 0
+   220 00000569 CD16                <1>     int 0x16
+   221 0000056B C606[DF06]00        <1>     mov byte [timeout_active], 0       ; any key cancels auto-boot
+   222 00000570 3C0D                <1>     cmp al, 0x0D
+   223 00000572 7447                <1>     je .select
+   224 00000574 80FC48              <1>     cmp ah, 0x48                       ; up arrow
+   225 00000577 7407                <1>     je .up
+   226 00000579 80FC50              <1>     cmp ah, 0x50                       ; down arrow
+   227 0000057C 740F                <1>     je .down
+   228 0000057E EBDB                <1>     jmp .loop
    229                              <1> .up:
-   230 00000582 833E[D706]00        <1>     cmp word [sel], 0
-   231 00000587 74D4                <1>     je .loop
-   232 00000589 FF0E[D706]          <1>     dec word [sel]
-   233 0000058D EBCE                <1>     jmp .loop
+   230 00000580 833E[D506]00        <1>     cmp word [sel], 0
+   231 00000585 74D4                <1>     je .loop
+   232 00000587 FF0E[D506]          <1>     dec word [sel]
+   233 0000058B EBCE                <1>     jmp .loop
    234                              <1> .down:
-   235 0000058F A1[D706]            <1>     mov ax, [sel]
-   236 00000592 40                  <1>     inc ax
-   237 00000593 0FB61E[D606]        <1>     movzx bx, byte [num_entries]
-   238 00000598 39D8                <1>     cmp ax, bx
-   239 0000059A 73C1                <1>     jae .loop
-   240 0000059C A3[D706]            <1>     mov [sel], ax
-   241 0000059F EBBC                <1>     jmp .loop
+   235 0000058D A1[D506]            <1>     mov ax, [sel]
+   236 00000590 40                  <1>     inc ax
+   237 00000591 0FB61E[D406]        <1>     movzx bx, byte [num_entries]
+   238 00000596 39D8                <1>     cmp ax, bx
+   239 00000598 73C1                <1>     jae .loop
+   240 0000059A A3[D506]            <1>     mov [sel], ax
+   241 0000059D EBBC                <1>     jmp .loop
    242                              <1> .nokey:
-   243 000005A1 803E[E106]00        <1>     cmp byte [timeout_active], 0
-   244 000005A6 74B5                <1>     je .loop
-   245 000005A8 E82100              <1>     call get_ticks
-   246 000005AB 662B06[D906]        <1>     sub eax, [start_ticks]
-   247 000005B0 663B06[DD06]        <1>     cmp eax, [timeout_ticks]
-   248 000005B5 72A6                <1>     jb .loop
-   249 000005B7 A1[D406]            <1>     mov ax, [cfg_default]
-   250 000005BA A3[D706]            <1>     mov [sel], ax
+   243 0000059F 803E[DF06]00        <1>     cmp byte [timeout_active], 0
+   244 000005A4 74B5                <1>     je .loop
+   245 000005A6 E82100              <1>     call get_ticks
+   246 000005A9 662B06[D706]        <1>     sub eax, [start_ticks]
+   247 000005AE 663B06[DB06]        <1>     cmp eax, [timeout_ticks]
+   248 000005B3 72A6                <1>     jb .loop
+   249 000005B5 A1[D206]            <1>     mov ax, [cfg_default]
+   250 000005B8 A3[D506]            <1>     mov [sel], ax
    251                              <1> .select:
-   252 000005BD A1[D706]            <1>     mov ax, [sel]
-   253 000005C0 BB0B00              <1>     mov bx, 11
-   254 000005C3 F7E3                <1>     mul bx
-   255 000005C5 05[F506]            <1>     add ax, entry_name
-   256 000005C8 A3[C800]            <1>     mov [find_name], ax
-   257 000005CB C3                  <1>     ret
+   252 000005BB A1[D506]            <1>     mov ax, [sel]
+   253 000005BE BB0B00              <1>     mov bx, 11
+   254 000005C1 F7E3                <1>     mul bx
+   255 000005C3 05[F306]            <1>     add ax, entry_name
+   256 000005C6 A3[C600]            <1>     mov [find_name], ax
+   257 000005C9 C3                  <1>     ret
    258                              <1> 
    259                              <1> get_ticks:                            ; EAX = BIOS tick counter (BDA 0x046C)
-   260 000005CC 66A16C04            <1>     mov eax, [0x046C]
-   261 000005D0 C3                  <1>     ret
+   260 000005CA 66A16C04            <1>     mov eax, [0x046C]
+   261 000005CE C3                  <1>     ret
    262                              <1> 
    263                              <1> draw_splash:
-   264 000005D1 B601                <1>     mov dh, 1
-   265 000005D3 B21D                <1>     mov dl, 29
-   266 000005D5 B31F                <1>     mov bl, 0x1F
-   267 000005D7 BE[4D07]            <1>     mov si, msg_title
-   268 000005DA E8B500              <1>     call print_at
-   269 000005DD B603                <1>     mov dh, 3
-   270 000005DF B21B                <1>     mov dl, 27
-   271 000005E1 B307                <1>     mov bl, 0x07
-   272 000005E3 BE[6207]            <1>     mov si, msg_sub
-   273 000005E6 E8A900              <1>     call print_at
-   274 000005E9 C3                  <1>     ret
+   264 000005CF B601                <1>     mov dh, 1
+   265 000005D1 B21D                <1>     mov dl, 29
+   266 000005D3 B31F                <1>     mov bl, 0x1F
+   267 000005D5 BE[4B07]            <1>     mov si, msg_title
+   268 000005D8 E8B500              <1>     call print_at
+   269 000005DB B603                <1>     mov dh, 3
+   270 000005DD B21B                <1>     mov dl, 27
+   271 000005DF B307                <1>     mov bl, 0x07
+   272 000005E1 BE[6007]            <1>     mov si, msg_sub
+   273 000005E4 E8A900              <1>     call print_at
+   274 000005E7 C3                  <1>     ret
    275                              <1> 
    276                              <1> draw_entries:
-   277 000005EA 31C9                <1>     xor cx, cx
+   277 000005E8 31C9                <1>     xor cx, cx
    278                              <1> .e:
-   279 000005EC 0FB606[D606]        <1>     movzx ax, byte [num_entries]
-   280 000005F1 39C1                <1>     cmp cx, ax
-   281 000005F3 7322                <1>     jae .done
-   282 000005F5 B307                <1>     mov bl, 0x07
-   283 000005F7 A1[D706]            <1>     mov ax, [sel]
-   284 000005FA 39C8                <1>     cmp ax, cx
-   285 000005FC 7502                <1>     jne .a
-   286 000005FE B370                <1>     mov bl, 0x70                       ; highlight selected
+   279 000005EA 0FB606[D406]        <1>     movzx ax, byte [num_entries]
+   280 000005EF 39C1                <1>     cmp cx, ax
+   281 000005F1 7322                <1>     jae .done
+   282 000005F3 B307                <1>     mov bl, 0x07
+   283 000005F5 A1[D506]            <1>     mov ax, [sel]
+   284 000005F8 39C8                <1>     cmp ax, cx
+   285 000005FA 7502                <1>     jne .a
+   286 000005FC B370                <1>     mov bl, 0x70                       ; highlight selected
    287                              <1> .a:
-   288 00000600 88CE                <1>     mov dh, cl
-   289 00000602 80C606              <1>     add dh, 6
-   290 00000605 B21C                <1>     mov dl, 28
-   291 00000607 89CE                <1>     mov si, cx                        ; index via SI (mov bx,cx would clobber BL=attr)
-   292 00000609 D1E6                <1>     shl si, 1
-   293 0000060B 8BB4[E506]          <1>     mov si, [entry_label+si]
-   294 0000060F 51                  <1>     push cx
-   295 00000610 E87F00              <1>     call print_at
-   296 00000613 59                  <1>     pop cx
-   297 00000614 41                  <1>     inc cx
-   298 00000615 EBD5                <1>     jmp .e
+   288 000005FE 88CE                <1>     mov dh, cl
+   289 00000600 80C606              <1>     add dh, 6
+   290 00000603 B21C                <1>     mov dl, 28
+   291 00000605 89CE                <1>     mov si, cx                        ; index via SI (mov bx,cx would clobber BL=attr)
+   292 00000607 D1E6                <1>     shl si, 1
+   293 00000609 8BB4[E306]          <1>     mov si, [entry_label+si]
+   294 0000060D 51                  <1>     push cx
+   295 0000060E E87F00              <1>     call print_at
+   296 00000611 59                  <1>     pop cx
+   297 00000612 41                  <1>     inc cx
+   298 00000613 EBD5                <1>     jmp .e
    299                              <1> .done:
-   300 00000617 C3                  <1>     ret
+   300 00000615 C3                  <1>     ret
    301                              <1> 
    302                              <1> draw_status:
-   303 00000618 B612                <1>     mov dh, 18                         ; clear the status row first
-   304 0000061A B20F                <1>     mov dl, 15
-   305 0000061C B308                <1>     mov bl, 0x08
-   306 0000061E BE[C807]            <1>     mov si, msg_blank
-   307 00000621 E86E00              <1>     call print_at
-   308 00000624 803E[E106]00        <1>     cmp byte [timeout_active], 0
-   309 00000629 743E                <1>     je .keys
-   310 0000062B E89EFF              <1>     call get_ticks
-   311 0000062E 662B06[D906]        <1>     sub eax, [start_ticks]
-   312 00000633 6631D2              <1>     xor edx, edx
-   313 00000636 66B912000000        <1>     mov ecx, 18
-   314 0000063C 66F7F1              <1>     div ecx                            ; eax = elapsed seconds
-   315 0000063F 8B1E[D206]          <1>     mov bx, [cfg_timeout]
-   316 00000643 29C3                <1>     sub bx, ax
-   317 00000645 7902                <1>     jns .pos                           ; clamp a negative remainder to 0
-   318 00000647 31DB                <1>     xor bx, bx
+   303 00000616 B612                <1>     mov dh, 18                         ; clear the status row first
+   304 00000618 B20F                <1>     mov dl, 15
+   305 0000061A B308                <1>     mov bl, 0x08
+   306 0000061C BE[C607]            <1>     mov si, msg_blank
+   307 0000061F E86E00              <1>     call print_at
+   308 00000622 803E[DF06]00        <1>     cmp byte [timeout_active], 0
+   309 00000627 743E                <1>     je .keys
+   310 00000629 E89EFF              <1>     call get_ticks
+   311 0000062C 662B06[D706]        <1>     sub eax, [start_ticks]
+   312 00000631 6631D2              <1>     xor edx, edx
+   313 00000634 66B912000000        <1>     mov ecx, 18
+   314 0000063A 66F7F1              <1>     div ecx                            ; eax = elapsed seconds
+   315 0000063D 8B1E[D006]          <1>     mov bx, [cfg_timeout]
+   316 00000641 29C3                <1>     sub bx, ax
+   317 00000643 7902                <1>     jns .pos                           ; clamp a negative remainder to 0
+   318 00000645 31DB                <1>     xor bx, bx
    319                              <1> .pos:
-   320 00000649 89D8                <1>     mov ax, bx
-   321 0000064B 83F863              <1>     cmp ax, 99
-   322 0000064E 7603                <1>     jbe .ok
-   323 00000650 B86300              <1>     mov ax, 99
+   320 00000647 89D8                <1>     mov ax, bx
+   321 00000649 83F863              <1>     cmp ax, 99
+   322 0000064C 7603                <1>     jbe .ok
+   323 0000064E B86300              <1>     mov ax, 99
    324                              <1> .ok:
-   325 00000653 B612                <1>     mov dh, 18
-   326 00000655 B20F                <1>     mov dl, 15
-   327 00000657 B30E                <1>     mov bl, 0x0E
-   328 00000659 E81A00              <1>     call print_num_at                  ; "NN"
-   329 0000065C B612                <1>     mov dh, 18
-   330 0000065E B212                <1>     mov dl, 18
-   331 00000660 B30E                <1>     mov bl, 0x0E
-   332 00000662 BE[7B07]            <1>     mov si, msg_timeout
-   333 00000665 E82A00              <1>     call print_at
-   334 00000668 C3                  <1>     ret
+   325 00000651 B612                <1>     mov dh, 18
+   326 00000653 B20F                <1>     mov dl, 15
+   327 00000655 B30E                <1>     mov bl, 0x0E
+   328 00000657 E81A00              <1>     call print_num_at                  ; "NN"
+   329 0000065A B612                <1>     mov dh, 18
+   330 0000065C B212                <1>     mov dl, 18
+   331 0000065E B30E                <1>     mov bl, 0x0E
+   332 00000660 BE[7907]            <1>     mov si, msg_timeout
+   333 00000663 E82A00              <1>     call print_at
+   334 00000666 C3                  <1>     ret
    335                              <1> .keys:
-   336 00000669 B612                <1>     mov dh, 18
-   337 0000066B B20F                <1>     mov dl, 15
-   338 0000066D B308                <1>     mov bl, 0x08
-   339 0000066F BE[A807]            <1>     mov si, msg_keys
-   340 00000672 E81D00              <1>     call print_at
-   341 00000675 C3                  <1>     ret
+   336 00000667 B612                <1>     mov dh, 18
+   337 00000669 B20F                <1>     mov dl, 15
+   338 0000066B B308                <1>     mov bl, 0x08
+   339 0000066D BE[A607]            <1>     mov si, msg_keys
+   340 00000670 E81D00              <1>     call print_at
+   341 00000673 C3                  <1>     ret
    342                              <1> 
    343                              <1> print_num_at:                          ; AX=num(0-99) at DH,DL attr BL
-   344 00000676 B10A                <1>     mov cl, 10
-   345 00000678 F6F1                <1>     div cl                             ; al=tens, ah=units
-   346 0000067A 0430                <1>     add al, '0'
-   347 0000067C 80C430              <1>     add ah, '0'
-   348 0000067F A2[E206]            <1>     mov [numbuf], al
-   349 00000682 8826[E306]          <1>     mov [numbuf+1], ah
-   350 00000686 C606[E406]00        <1>     mov byte [numbuf+2], 0
-   351 0000068B BE[E206]            <1>     mov si, numbuf
-   352 0000068E E80100              <1>     call print_at
-   353 00000691 C3                  <1>     ret
+   344 00000674 B10A                <1>     mov cl, 10
+   345 00000676 F6F1                <1>     div cl                             ; al=tens, ah=units
+   346 00000678 0430                <1>     add al, '0'
+   347 0000067A 80C430              <1>     add ah, '0'
+   348 0000067D A2[E006]            <1>     mov [numbuf], al
+   349 00000680 8826[E106]          <1>     mov [numbuf+1], ah
+   350 00000684 C606[E206]00        <1>     mov byte [numbuf+2], 0
+   351 00000689 BE[E006]            <1>     mov si, numbuf
+   352 0000068C E80100              <1>     call print_at
+   353 0000068F C3                  <1>     ret
    354                              <1> 
    355                              <1> ; print NUL-terminated [SI] at row DH col DL with attribute BL
    356                              <1> print_at:
-   357 00000692 50                  <1>     push ax
-   358 00000693 51                  <1>     push cx
-   359 00000694 52                  <1>     push dx
-   360 00000695 56                  <1>     push si
-   361 00000696 57                  <1>     push di
-   362 00000697 06                  <1>     push es
-   363 00000698 B800B8              <1>     mov ax, 0xB800
-   364 0000069B 8EC0                <1>     mov es, ax
-   365 0000069D 0FB6C6              <1>     movzx ax, dh
-   366 000006A0 B150                <1>     mov cl, 80
-   367 000006A2 F6E1                <1>     mul cl                            ; ax = row*80 (8-bit mul keeps DX/dl intact)
-   368 000006A4 0FB6CA              <1>     movzx cx, dl
-   369 000006A7 01C8                <1>     add ax, cx
-   370 000006A9 D1E0                <1>     shl ax, 1
-   371 000006AB 89C7                <1>     mov di, ax
-   372 000006AD 88DC                <1>     mov ah, bl
+   357 00000690 50                  <1>     push ax
+   358 00000691 51                  <1>     push cx
+   359 00000692 52                  <1>     push dx
+   360 00000693 56                  <1>     push si
+   361 00000694 57                  <1>     push di
+   362 00000695 06                  <1>     push es
+   363 00000696 B800B8              <1>     mov ax, 0xB800
+   364 00000699 8EC0                <1>     mov es, ax
+   365 0000069B 0FB6C6              <1>     movzx ax, dh
+   366 0000069E B150                <1>     mov cl, 80
+   367 000006A0 F6E1                <1>     mul cl                            ; ax = row*80 (8-bit mul keeps DX/dl intact)
+   368 000006A2 0FB6CA              <1>     movzx cx, dl
+   369 000006A5 01C8                <1>     add ax, cx
+   370 000006A7 D1E0                <1>     shl ax, 1
+   371 000006A9 89C7                <1>     mov di, ax
+   372 000006AB 88DC                <1>     mov ah, bl
    373                              <1> .p:
-   374 000006AF AC                  <1>     lodsb
-   375 000006B0 84C0                <1>     test al, al
-   376 000006B2 740C                <1>     jz .d
-   377 000006B4 268805              <1>     mov [es:di], al
-   378 000006B7 26886501            <1>     mov [es:di+1], ah
-   379 000006BB 83C702              <1>     add di, 2
-   380 000006BE EBEF                <1>     jmp .p
+   374 000006AD AC                  <1>     lodsb
+   375 000006AE 84C0                <1>     test al, al
+   376 000006B0 740C                <1>     jz .d
+   377 000006B2 268805              <1>     mov [es:di], al
+   378 000006B5 26886501            <1>     mov [es:di+1], ah
+   379 000006B9 83C702              <1>     add di, 2
+   380 000006BC EBEF                <1>     jmp .p
    381                              <1> .d:
-   382 000006C0 07                  <1>     pop es
-   383 000006C1 5F                  <1>     pop di
-   384 000006C2 5E                  <1>     pop si
-   385 000006C3 5A                  <1>     pop dx
-   386 000006C4 59                  <1>     pop cx
-   387 000006C5 58                  <1>     pop ax
-   388 000006C6 C3                  <1>     ret
+   382 000006BE 07                  <1>     pop es
+   383 000006BF 5F                  <1>     pop di
+   384 000006C0 5E                  <1>     pop si
+   385 000006C1 5A                  <1>     pop dx
+   386 000006C2 59                  <1>     pop cx
+   387 000006C3 58                  <1>     pop ax
+   388 000006C4 C3                  <1>     ret
    389                              <1> 
-   390 000006C7 4E5958202020202043- <1> cfg_name:       db 'NYX     CFG'
-   390 000006D0 4647                <1>
-   391 000006D2 0500                <1> cfg_timeout:    dw 5
-   392 000006D4 0000                <1> cfg_default:    dw 0
-   393 000006D6 00                  <1> num_entries:    db 0
-   394 000006D7 0000                <1> sel:            dw 0
-   395 000006D9 00000000            <1> start_ticks:    dd 0
-   396 000006DD 00000000            <1> timeout_ticks:  dd 0
-   397 000006E1 01                  <1> timeout_active: db 1
-   398 000006E2 000000              <1> numbuf:         db 0, 0, 0
-   399 000006E5 0000<rep 8h>        <1> entry_label:    times MAX_ENTRIES dw 0
-   400 000006F5 00<rep 58h>         <1> entry_name:     times MAX_ENTRIES*11 db 0
-   401 0000074D 3D3D204E595820424F- <1> msg_title:      db '== NYX BOOTLOADER ==', 0
-   401 00000756 4F544C4F4144455220- <1>
-   401 0000075F 3D3D00              <1>
-   402 00000762 53656C656374206120- <1> msg_sub:        db 'Select a kernel to boot:', 0
-   402 0000076B 6B65726E656C20746F- <1>
-   402 00000774 20626F6F743A00      <1>
-   403 0000077B 7365633A20626F6F74- <1> msg_timeout:    db 'sec: booting default (press a key to choose)', 0
-   403 00000784 696E67206465666175- <1>
-   403 0000078D 6C7420287072657373- <1>
-   403 00000796 2061206B657920746F- <1>
-   403 0000079F 2063686F6F73652900  <1>
-   404 000007A8 55702F446F776E2074- <1> msg_keys:       db 'Up/Down to move, Enter to boot.', 0
-   404 000007B1 6F206D6F76652C2045- <1>
-   404 000007BA 6E74657220746F2062- <1>
-   404 000007C3 6F6F742E00          <1>
-   405 000007C8 202020202020202020- <1> msg_blank:      db '                                                    ', 0
-   405 000007D1 202020202020202020- <1>
-   405 000007DA 202020202020202020- <1>
-   405 000007E3 202020202020202020- <1>
-   405 000007EC 202020202020202020- <1>
-   405 000007F5 2020202020202000    <1>
-   406 000007FD 6C6F6164206572726F- <1> msg_loaderr:    db 'load error', 0x0D, 0x0A, 0
-   406 00000806 720D0A00            <1>
+   390 000006C5 4E5958202020202043- <1> cfg_name:       db 'NYX     CFG'
+   390 000006CE 4647                <1>
+   391 000006D0 0500                <1> cfg_timeout:    dw 5
+   392 000006D2 0000                <1> cfg_default:    dw 0
+   393 000006D4 00                  <1> num_entries:    db 0
+   394 000006D5 0000                <1> sel:            dw 0
+   395 000006D7 00000000            <1> start_ticks:    dd 0
+   396 000006DB 00000000            <1> timeout_ticks:  dd 0
+   397 000006DF 01                  <1> timeout_active: db 1
+   398 000006E0 000000              <1> numbuf:         db 0, 0, 0
+   399 000006E3 0000<rep 8h>        <1> entry_label:    times MAX_ENTRIES dw 0
+   400 000006F3 00<rep 58h>         <1> entry_name:     times MAX_ENTRIES*11 db 0
+   401 0000074B 3D3D204E595820424F- <1> msg_title:      db '== NYX BOOTLOADER ==', 0
+   401 00000754 4F544C4F4144455220- <1>
+   401 0000075D 3D3D00              <1>
+   402 00000760 53656C656374206120- <1> msg_sub:        db 'Select a kernel to boot:', 0
+   402 00000769 6B65726E656C20746F- <1>
+   402 00000772 20626F6F743A00      <1>
+   403 00000779 7365633A20626F6F74- <1> msg_timeout:    db 'sec: booting default (press a key to choose)', 0
+   403 00000782 696E67206465666175- <1>
+   403 0000078B 6C7420287072657373- <1>
+   403 00000794 2061206B657920746F- <1>
+   403 0000079D 2063686F6F73652900  <1>
+   404 000007A6 55702F446F776E2074- <1> msg_keys:       db 'Up/Down to move, Enter to boot.', 0
+   404 000007AF 6F206D6F76652C2045- <1>
+   404 000007B8 6E74657220746F2062- <1>
+   404 000007C1 6F6F742E00          <1>
+   405 000007C6 202020202020202020- <1> msg_blank:      db '                                                    ', 0
+   405 000007CF 202020202020202020- <1>
+   405 000007D8 202020202020202020- <1>
+   405 000007E1 202020202020202020- <1>
+   405 000007EA 202020202020202020- <1>
+   405 000007F3 2020202020202000    <1>
+   406 000007FB 6C6F6164206572726F- <1> msg_loaderr:    db 'load error', 0x0D, 0x0A, 0
+   406 00000804 720D0A00            <1>
    124                                  %include "gdt.asm"
      1                              <1> ; Global Descriptor Table - flat 32-bit model: null, code, data.
      2                              <1> ; Both code and data span all 4 GB from base 0, so addresses become plain
@@ -867,103 +867,103 @@
      5                              <1> gdt_start:
      6                              <1> 
      7                              <1> gdt_null:                        ; entry 0 (selector 0x00) - required, must be zero
-     8 0000080A 0000000000000000    <1>     dq 0
+     8 00000808 0000000000000000    <1>     dq 0
      9                              <1> 
     10                              <1> gdt_code:                        ; entry 1 (selector 0x08) - ring0 32-bit code
-    11 00000812 FFFF                <1>     dw 0xFFFF                    ; limit 15:0
-    12 00000814 0000                <1>     dw 0x0000                    ; base 15:0
-    13 00000816 00                  <1>     db 0x00                      ; base 23:16
-    14 00000817 9A                  <1>     db 10011010b                 ; access 0x9A: P=1 DPL=0 S=1 E=1 DC=0 RW=1 A=0
-    15 00000818 CF                  <1>     db 11001111b                 ; 0xCF: flags G=1 DB=1 L=0 AVL=0 | limit 19:16=0xF
-    16 00000819 00                  <1>     db 0x00                      ; base 31:24
+    11 00000810 FFFF                <1>     dw 0xFFFF                    ; limit 15:0
+    12 00000812 0000                <1>     dw 0x0000                    ; base 15:0
+    13 00000814 00                  <1>     db 0x00                      ; base 23:16
+    14 00000815 9A                  <1>     db 10011010b                 ; access 0x9A: P=1 DPL=0 S=1 E=1 DC=0 RW=1 A=0
+    15 00000816 CF                  <1>     db 11001111b                 ; 0xCF: flags G=1 DB=1 L=0 AVL=0 | limit 19:16=0xF
+    16 00000817 00                  <1>     db 0x00                      ; base 31:24
     17                              <1> 
     18                              <1> gdt_data:                        ; entry 2 (selector 0x10) - ring0 32-bit data
-    19 0000081A FFFF                <1>     dw 0xFFFF
-    20 0000081C 0000                <1>     dw 0x0000
-    21 0000081E 00                  <1>     db 0x00
-    22 0000081F 92                  <1>     db 10010010b                 ; access 0x92: same as code but E=0 (data), RW=1 (writable)
-    23 00000820 CF                  <1>     db 11001111b
-    24 00000821 00                  <1>     db 0x00
+    19 00000818 FFFF                <1>     dw 0xFFFF
+    20 0000081A 0000                <1>     dw 0x0000
+    21 0000081C 00                  <1>     db 0x00
+    22 0000081D 92                  <1>     db 10010010b                 ; access 0x92: same as code but E=0 (data), RW=1 (writable)
+    23 0000081E CF                  <1>     db 11001111b
+    24 0000081F 00                  <1>     db 0x00
     25                              <1> 
     26                              <1> gdt_end:
     27                              <1> 
     28                              <1> gdt_descriptor:                  ; the 6-byte operand lgdt reads
-    29 00000822 1700                <1>     dw gdt_end - gdt_start - 1   ; limit = table size - 1
-    30 00000824 [0A080000]          <1>     dd gdt_start                  ; base = linear address of the table
+    29 00000820 1700                <1>     dw gdt_end - gdt_start - 1   ; limit = table size - 1
+    30 00000822 [08080000]          <1>     dd gdt_start                  ; base = linear address of the table
     31                              <1> 
     32                              <1> CODE_SEG equ gdt_code - gdt_start   ; = 0x08 (offset of code entry = its selector)
     33                              <1> DATA_SEG equ gdt_data - gdt_start   ; = 0x10
     34                              <1> 
     35                              <1> gdt_install:
-    36 00000828 0F0116[2208]        <1>     lgdt [gdt_descriptor]        ; load GDTR with (limit, base)
-    37 0000082D C3                  <1>     ret
+    36 00000826 0F0116[2008]        <1>     lgdt [gdt_descriptor]        ; load GDTR with (limit, base)
+    37 0000082B C3                  <1>     ret
    125                                  %include "a20.asm"
      1                              <1> ; A20 gate - unlock addressing above 1 MB before entering protected mode.
      2                              <1> ; Try the BIOS method, fall back to fast-A20 (port 0x92), then verify.
      3                              <1> 
      4                              <1> enable_a20:
-     5 0000082E E82500              <1>     call check_a20
-     6 00000831 7512                <1>     jnz .verify                  ; already on (some BIOSes enable it)
+     5 0000082C E82500              <1>     call check_a20
+     6 0000082F 7512                <1>     jnz .verify                  ; already on (some BIOSes enable it)
      7                              <1> 
-     8 00000833 B80124              <1>     mov ax, 0x2401               ; BIOS: enable A20
-     9 00000836 CD15                <1>     int 0x15
-    10 00000838 E81B00              <1>     call check_a20
-    11 0000083B 7508                <1>     jnz .verify
+     8 00000831 B80124              <1>     mov ax, 0x2401               ; BIOS: enable A20
+     9 00000834 CD15                <1>     int 0x15
+    10 00000836 E81B00              <1>     call check_a20
+    11 00000839 7508                <1>     jnz .verify
     12                              <1> 
-    13 0000083D E492                <1>     in al, 0x92                  ; fast A20 via System Control Port A
-    14 0000083F 0C02                <1>     or al, 2                     ; bit 1 = A20 enable
-    15 00000841 24FE                <1>     and al, 0xFE                 ; bit 0 = fast reset - keep it clear!
-    16 00000843 E692                <1>     out 0x92, al
+    13 0000083B E492                <1>     in al, 0x92                  ; fast A20 via System Control Port A
+    14 0000083D 0C02                <1>     or al, 2                     ; bit 1 = A20 enable
+    15 0000083F 24FE                <1>     and al, 0xFE                 ; bit 0 = fast reset - keep it clear!
+    16 00000841 E692                <1>     out 0x92, al
     17                              <1> 
     18                              <1> .verify:
-    19 00000845 E80E00              <1>     call check_a20
-    20 00000848 7406                <1>     jz .off
-    21 0000084A C606[9508]01        <1>     mov byte [a20_enabled], 1
-    22 0000084F C3                  <1>     ret
+    19 00000843 E80E00              <1>     call check_a20
+    20 00000846 7406                <1>     jz .off
+    21 00000848 C606[9308]01        <1>     mov byte [a20_enabled], 1
+    22 0000084D C3                  <1>     ret
     23                              <1> .off:
-    24 00000850 C606[9508]00        <1>     mov byte [a20_enabled], 0
-    25 00000855 C3                  <1>     ret
+    24 0000084E C606[9308]00        <1>     mov byte [a20_enabled], 0
+    25 00000853 C3                  <1>     ret
     26                              <1> 
     27                              <1> ; ZF=0 if A20 enabled, ZF=1 if disabled (0x100500 aliases 0x000500)
     28                              <1> check_a20:
-    29 00000856 9C                  <1>     pushf
-    30 00000857 1E                  <1>     push ds
-    31 00000858 06                  <1>     push es
-    32 00000859 57                  <1>     push di
-    33 0000085A 56                  <1>     push si
-    34 0000085B FA                  <1>     cli
-    35 0000085C 31C0                <1>     xor ax, ax
-    36 0000085E 8EC0                <1>     mov es, ax
-    37 00000860 BF0005              <1>     mov di, 0x0500              ; ES:DI = 0000:0500  -> linear 0x00500
-    38 00000863 B8FFFF              <1>     mov ax, 0xFFFF
-    39 00000866 8ED8                <1>     mov ds, ax
-    40 00000868 BE1005              <1>     mov si, 0x0510              ; DS:SI = FFFF:0510  -> linear 0x100500
+    29 00000854 9C                  <1>     pushf
+    30 00000855 1E                  <1>     push ds
+    31 00000856 06                  <1>     push es
+    32 00000857 57                  <1>     push di
+    33 00000858 56                  <1>     push si
+    34 00000859 FA                  <1>     cli
+    35 0000085A 31C0                <1>     xor ax, ax
+    36 0000085C 8EC0                <1>     mov es, ax
+    37 0000085E BF0005              <1>     mov di, 0x0500              ; ES:DI = 0000:0500  -> linear 0x00500
+    38 00000861 B8FFFF              <1>     mov ax, 0xFFFF
+    39 00000864 8ED8                <1>     mov ds, ax
+    40 00000866 BE1005              <1>     mov si, 0x0510              ; DS:SI = FFFF:0510  -> linear 0x100500
     41                              <1> 
-    42 0000086B 268A05              <1>     mov al, [es:di]            ; save originals in AL/AH
-    43 0000086E 3E8A24              <1>     mov ah, [ds:si]
-    44 00000871 50                  <1>     push ax
+    42 00000869 268A05              <1>     mov al, [es:di]            ; save originals in AL/AH
+    43 0000086C 3E8A24              <1>     mov ah, [ds:si]
+    44 0000086F 50                  <1>     push ax
     45                              <1> 
-    46 00000872 26C60500            <1>     mov byte [es:di], 0x00     ; write two distinct values
-    47 00000876 3EC604FF            <1>     mov byte [ds:si], 0xFF
-    48 0000087A 26803DFF            <1>     cmp byte [es:di], 0xFF     ; aliased? then [es:di] now reads 0xFF
+    46 00000870 26C60500            <1>     mov byte [es:di], 0x00     ; write two distinct values
+    47 00000874 3EC604FF            <1>     mov byte [ds:si], 0xFF
+    48 00000878 26803DFF            <1>     cmp byte [es:di], 0xFF     ; aliased? then [es:di] now reads 0xFF
     49                              <1> 
-    50 0000087E 58                  <1>     pop ax                     ; restore originals
-    51 0000087F 3E8824              <1>     mov [ds:si], ah
-    52 00000882 268805              <1>     mov [es:di], al
+    50 0000087C 58                  <1>     pop ax                     ; restore originals
+    51 0000087D 3E8824              <1>     mov [ds:si], ah
+    52 00000880 268805              <1>     mov [es:di], al
     53                              <1> 
-    54 00000885 B80000              <1>     mov ax, 0                  ; equal (aliased) -> disabled
-    55 00000888 7403                <1>     je .done
-    56 0000088A B80100              <1>     mov ax, 1                  ; independent -> enabled
+    54 00000883 B80000              <1>     mov ax, 0                  ; equal (aliased) -> disabled
+    55 00000886 7403                <1>     je .done
+    56 00000888 B80100              <1>     mov ax, 1                  ; independent -> enabled
     57                              <1> .done:
-    58 0000088D 5E                  <1>     pop si
-    59 0000088E 5F                  <1>     pop di
-    60 0000088F 07                  <1>     pop es
-    61 00000890 1F                  <1>     pop ds
-    62 00000891 9D                  <1>     popf
-    63 00000892 09C0                <1>     or ax, ax                  ; ZF reflects enabled(1)/disabled(0)
-    64 00000894 C3                  <1>     ret
+    58 0000088B 5E                  <1>     pop si
+    59 0000088C 5F                  <1>     pop di
+    60 0000088D 07                  <1>     pop es
+    61 0000088E 1F                  <1>     pop ds
+    62 0000088F 9D                  <1>     popf
+    63 00000890 09C0                <1>     or ax, ax                  ; ZF reflects enabled(1)/disabled(0)
+    64 00000892 C3                  <1>     ret
     65                              <1> 
-    66 00000895 00                  <1> a20_enabled: db 0
+    66 00000893 00                  <1> a20_enabled: db 0
    126                                  %include "e820.asm"
      1                              <1> ; E820 - ask BIOS for the physical memory map (int 0x15, EAX=0xE820).
      2                              <1> ; Last BIOS call before protected mode. Stored as a uniform array of 24-byte
@@ -972,29 +972,48 @@
      5                              <1> MAX_E820 equ 24
      6                              <1> 
      7                              <1> get_e820:
-     8 00000896 06                  <1>     push es
-     9 00000897 31C0                <1>     xor ax, ax
-    10 00000899 8EC0                <1>     mov es, ax                   ; entries live in segment 0
-    11 0000089B C706[DA08]0000      <1>     mov word [e820_count], 0
-    12 000008A1 BF[DC08]            <1>     mov di, e820_map             ; ES:DI = first slot
-    13 000008A4 6631DB              <1>     xor ebx, ebx                 ; continuation = 0 (first call)
+     8 00000894 06                  <1>     push es
+     9 00000895 31C0                <1>     xor ax, ax
+    10 00000897 8EC0                <1>     mov es, ax                   ; entries live in segment 0
+    11 00000899 C706[D808]0000      <1>     mov word [e820_count], 0
+    12 0000089F BF[DA08]            <1>     mov di, e820_map             ; ES:DI = first slot
+    13 000008A2 6631DB              <1>     xor ebx, ebx                 ; continuation = 0 (first call)
     14                              <1> .loop:
-    15 000008A7 66B820E80000        <1>     mov eax, 0xE820
-    16 000008AD 66BA50414D53        <1>     mov edx, 0x534D4150          ; 'SMAP' - must be re-set every call
-    17 000008B3 66B918000000        <1>     mov ecx, 24                  ; entry buffer size
-    18 000008B9 CD15                <1>     int 0x15
-    19 000008BB 721B                <1>     jc .done                     ; CF = error, or list finished
-    20 000008BD 663D50414D53        <1>     cmp eax, 0x534D4150          ; BIOS must echo 'SMAP'
-    21 000008C3 7513                <1>     jne .done
-    22 000008C5 FF06[DA08]          <1>     inc word [e820_count]
-    23 000008C9 83C718              <1>     add di, 24                   ; next slot (uniform stride)
-    24 000008CC 6685DB              <1>     test ebx, ebx                ; continuation 0 = that was the last entry
-    25 000008CF 7407                <1>     jz .done
-    26 000008D1 833E[DA08]18        <1>     cmp word [e820_count], MAX_E820
-    27 000008D6 72CF                <1>     jb .loop
+    15 000008A5 66B820E80000        <1>     mov eax, 0xE820
+    16 000008AB 66BA50414D53        <1>     mov edx, 0x534D4150          ; 'SMAP' - must be re-set every call
+    17 000008B1 66B918000000        <1>     mov ecx, 24                  ; entry buffer size
+    18 000008B7 CD15                <1>     int 0x15
+    19 000008B9 721B                <1>     jc .done                     ; CF = error, or list finished
+    20 000008BB 663D50414D53        <1>     cmp eax, 0x534D4150          ; BIOS must echo 'SMAP'
+    21 000008C1 7513                <1>     jne .done
+    22 000008C3 FF06[D808]          <1>     inc word [e820_count]
+    23 000008C7 83C718              <1>     add di, 24                   ; next slot (uniform stride)
+    24 000008CA 6685DB              <1>     test ebx, ebx                ; continuation 0 = that was the last entry
+    25 000008CD 7407                <1>     jz .done
+    26 000008CF 833E[D808]18        <1>     cmp word [e820_count], MAX_E820
+    27 000008D4 72CF                <1>     jb .loop
     28                              <1> .done:
-    29 000008D8 07                  <1>     pop es
-    30 000008D9 C3                  <1>     ret
+    29 000008D6 07                  <1>     pop es
+    30 000008D7 C3                  <1>     ret
     31                              <1> 
-    32 000008DA 0000                <1> e820_count: dw 0
-    33 000008DC 00<rep 240h>        <1> e820_map:   times MAX_E820*24 db 0
+    32 000008D8 0000                <1> e820_count: dw 0
+    33 000008DA 00<rep 240h>        <1> e820_map:   times MAX_E820*24 db 0
+   127                                  
+   128                                  ; ---- the real -> protected mode switch --------------------------------------
+   129                                  switch_to_pm:
+   130 00000B1A FA                          cli                                  ; real-mode IVT is about to be invalid
+   131 00000B1B 0F20C0                      mov eax, cr0
+   132 00000B1E 0C01                        or  al, 1                            ; set PE (Protection Enable)
+   133 00000B20 0F22C0                      mov cr0, eax
+   134 00000B23 EA[280B]0800                jmp CODE_SEG:pm_entry                ; far jump: reload CS=0x08, flush pipeline
+   135                                  
+   136                                  [bits 32]
+   137                                  pm_entry:
+   138 00000B28 66B81000                    mov ax, DATA_SEG                     ; reload data selectors (flat data segment)
+   139 00000B2C 8ED8                        mov ds, ax
+   140 00000B2E 8EC0                        mov es, ax
+   141 00000B30 8EE0                        mov fs, ax
+   142 00000B32 8EE8                        mov gs, ax
+   143 00000B34 8ED0                        mov ss, ax
+   144 00000B36 BC00000900                  mov esp, 0x90000                     ; 32-bit stack
+   145 00000B3B E9(00000100)                jmp KERNEL_SEG*16                    ; enter the loaded 32-bit kernel at 0x10000
