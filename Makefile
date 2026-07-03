@@ -2,7 +2,7 @@
 # Nyx bootloader - build & run
 # Run from the project root inside WSL:  make  |  make run  |  make clean
 # ============================================================================
-.PHONY: all run clean test test-fat32 test-menu fat32 run-fat32 menu run-menu
+.PHONY: all run clean test test-fat32 test-menu fat32 run-fat32 menu run-menu mb run-mb
 
 BUILD_DIR := build
 SRC_DIR   := src/bootloader
@@ -96,6 +96,23 @@ $(BUILD_DIR)/disk_menu.img: $(BUILD_DIR)/mbr.bin $(BUILD_DIR)/stage2.bin $(BUILD
 
 run-menu: $(BUILD_DIR)/disk_menu.img
 	$(QEMU) -drive format=raw,file=$(BUILD_DIR)/disk_menu.img
+
+# ---- Multiboot demo: boot a foreign Multiboot kernel ----
+mb: $(BUILD_DIR)/disk_mb.img
+
+$(BUILD_DIR)/mb_kernel.bin: $(KSRC_DIR)/mb_kernel.asm
+	mkdir -p $(BUILD_DIR)
+	$(NASM) -f bin $< -o $@
+
+$(BUILD_DIR)/disk_mb.img: $(BUILD_DIR)/mbr.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/mb_kernel.bin
+	dd if=/dev/zero of=$@ bs=512 count=2880 2>/dev/null
+	mkfs.fat -F 12 -R 17 -r 224 -s 1 -S 512 -M 0xF0 $@ >/dev/null
+	mcopy -i $@ $(BUILD_DIR)/mb_kernel.bin ::/KERNEL.BIN
+	dd if=$(BUILD_DIR)/mbr.bin    of=$@ bs=512 count=1 conv=notrunc 2>/dev/null
+	dd if=$(BUILD_DIR)/stage2.bin of=$@ bs=512 seek=1 conv=notrunc 2>/dev/null
+
+run-mb: $(BUILD_DIR)/disk_mb.img
+	$(QEMU) -drive format=raw,file=$(BUILD_DIR)/disk_mb.img
 
 # Runtime checkpoints for the menu: config read + parsed into the entry table
 test-menu: menu

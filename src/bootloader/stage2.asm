@@ -142,4 +142,73 @@ pm_entry:
     mov gs, ax
     mov ss, ax
     mov esp, 0x90000                     ; 32-bit stack
-    jmp KERNEL_SEG*16                    ; enter the loaded 32-bit kernel at 0x10000
+
+    mov esi, KERNEL_SEG*16               ; scan the loaded kernel for the Multiboot header
+    mov ecx, [file_size]
+    shr ecx, 2                           ; dwords
+    cmp ecx, 2048                        ; ...within the first 8 KB
+    jbe .have_len
+    mov ecx, 2048
+.have_len:
+.scan:
+    cmp dword [esi], 0x1BADB002
+    je .multiboot
+    add esi, 4
+    dec ecx
+    jnz .scan
+    jmp KERNEL_SEG*16                    ; no header -> plain binary kernel (our C kernel)
+
+.multiboot:
+    call build_mb_info
+    mov eax, 0x2BADB002                  ; the handoff magic
+    mov ebx, mb_info                     ; -> the info structure
+    jmp KERNEL_SEG*16
+
+; turn the E820 map into a Multiboot info struct + mmap
+build_mb_info:
+    mov esi, e820_map
+    mov edi, mb_mmap
+    movzx ecx, word [e820_count]
+.mm:
+    mov dword [edi], 20                  ; size (entry bytes excluding this field)
+    mov eax, [esi];    mov [edi+4],  eax ; base low
+    mov eax, [esi+4];  mov [edi+8],  eax ; base high
+    mov eax, [esi+8];  mov [edi+12], eax ; length low
+    mov eax, [esi+12]; mov [edi+16], eax ; length high
+    mov eax, [esi+16]; mov [edi+20], eax ; type
+    add esi, 24
+    add edi, 24
+    dec ecx
+    jnz .mm
+
+    movzx eax, word [e820_count]
+    imul eax, eax, 24
+    mov [mb_info+44], eax                ; mmap_length
+    mov dword [mb_info+48], mb_mmap      ; mmap_addr
+    mov dword [mb_info], 0x41            ; flags: mem (bit0) + mmap (bit6)
+    mov dword [mb_info+4], 640           ; mem_lower (KB)
+
+    mov dword [mb_info+8], 0             ; mem_upper = usable RAM at 1 MB, in KB
+    mov esi, e820_map
+    movzx ecx, word [e820_count]
+.mu:
+    cmp dword [esi], 0x00100000
+    jne .mu_next
+    cmp dword [esi+4], 0
+    jne .mu_next
+    cmp dword [esi+16], 1
+    jne .mu_next
+    mov eax, [esi+8]
+    shr eax, 10
+    mov [mb_info+8], eax
+    jmp .mu_done
+.mu_next:
+    add esi, 24
+    dec ecx
+    jnz .mu
+.mu_done:
+    ret
+
+align 4
+mb_info: times 90 db 0
+mb_mmap: times MAX_E820*24 db 0

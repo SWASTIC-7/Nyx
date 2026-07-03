@@ -1016,4 +1016,77 @@
    142 00000B32 8EE8                        mov gs, ax
    143 00000B34 8ED0                        mov ss, ax
    144 00000B36 BC00000900                  mov esp, 0x90000                     ; 32-bit stack
-   145 00000B3B E9(00000100)                jmp KERNEL_SEG*16                    ; enter the loaded 32-bit kernel at 0x10000
+   145                                  
+   146 00000B3B BE00000100                  mov esi, KERNEL_SEG*16               ; scan the loaded kernel for the Multiboot header
+   147 00000B40 8B0D[CA000000]              mov ecx, [file_size]
+   148 00000B46 C1E902                      shr ecx, 2                           ; dwords
+   149 00000B49 81F900080000                cmp ecx, 2048                        ; ...within the first 8 KB
+   150 00000B4F 7605                        jbe .have_len
+   151 00000B51 B900080000                  mov ecx, 2048
+   152                                  .have_len:
+   153                                  .scan:
+   154 00000B56 813E02B0AD1B                cmp dword [esi], 0x1BADB002
+   155 00000B5C 740B                        je .multiboot
+   156 00000B5E 83C604                      add esi, 4
+   157 00000B61 49                          dec ecx
+   158 00000B62 75F2                        jnz .scan
+   159 00000B64 E9(00000100)                jmp KERNEL_SEG*16                    ; no header -> plain binary kernel (our C kernel)
+   160                                  
+   161                                  .multiboot:
+   162 00000B69 E80F000000                  call build_mb_info
+   163 00000B6E B802B0AD2B                  mov eax, 0x2BADB002                  ; the handoff magic
+   164 00000B73 BB[180C0000]                mov ebx, mb_info                     ; -> the info structure
+   165 00000B78 E9(00000100)                jmp KERNEL_SEG*16
+   166                                  
+   167                                  ; turn the E820 map into a Multiboot info struct + mmap
+   168                                  build_mb_info:
+   169 00000B7D BE[DA080000]                mov esi, e820_map
+   170 00000B82 BF[720C0000]                mov edi, mb_mmap
+   171 00000B87 0FB70D[D8080000]            movzx ecx, word [e820_count]
+   172                                  .mm:
+   173 00000B8E C70714000000                mov dword [edi], 20                  ; size (entry bytes excluding this field)
+   174 00000B94 8B06                        mov eax, [esi];    mov [edi+4],  eax ; base low
+   175 00000B96 8B4604                      mov eax, [esi+4];  mov [edi+8],  eax ; base high
+   176 00000B99 8B4608                      mov eax, [esi+8];  mov [edi+12], eax ; length low
+   177 00000B9C 8B460C                      mov eax, [esi+12]; mov [edi+16], eax ; length high
+   178 00000B9F 8B4610                      mov eax, [esi+16]; mov [edi+20], eax ; type
+   179 00000BA2 83C618                      add esi, 24
+   180 00000BA5 83C718                      add edi, 24
+   181 00000BA8 49                          dec ecx
+   182 00000BA9 75E3                        jnz .mm
+   183                                  
+   184 00000BAB 0FB705[D8080000]            movzx eax, word [e820_count]
+   185 00000BB2 6BC018                      imul eax, eax, 24
+   186 00000BB5 A3[440C0000]                mov [mb_info+44], eax                ; mmap_length
+   187 00000BBA C705[480C0000]-             mov dword [mb_info+48], mb_mmap      ; mmap_addr
+   187 00000BC0 [720C0000]         
+   188 00000BC4 C705[180C0000]4100-         mov dword [mb_info], 0x41            ; flags: mem (bit0) + mmap (bit6)
+   188 00000BCC 0000               
+   189 00000BCE C705[1C0C0000]8002-         mov dword [mb_info+4], 640           ; mem_lower (KB)
+   189 00000BD6 0000               
+   190                                  
+   191 00000BD8 C705[200C0000]0000-         mov dword [mb_info+8], 0             ; mem_upper = usable RAM at 1 MB, in KB
+   191 00000BE0 0000               
+   192 00000BE2 BE[DA080000]                mov esi, e820_map
+   193 00000BE7 0FB70D[D8080000]            movzx ecx, word [e820_count]
+   194                                  .mu:
+   195 00000BEE 813E00001000                cmp dword [esi], 0x00100000
+   196 00000BF4 7519                        jne .mu_next
+   197 00000BF6 837E0400                    cmp dword [esi+4], 0
+   198 00000BFA 7513                        jne .mu_next
+   199 00000BFC 837E1001                    cmp dword [esi+16], 1
+   200 00000C00 750D                        jne .mu_next
+   201 00000C02 8B4608                      mov eax, [esi+8]
+   202 00000C05 C1E80A                      shr eax, 10
+   203 00000C08 A3[200C0000]                mov [mb_info+8], eax
+   204 00000C0D EB06                        jmp .mu_done
+   205                                  .mu_next:
+   206 00000C0F 83C618                      add esi, 24
+   207 00000C12 49                          dec ecx
+   208 00000C13 75D9                        jnz .mu
+   209                                  .mu_done:
+   210 00000C15 C3                          ret
+   211                                  
+   212 00000C16 90<rep 2h>              align 4
+   213 00000C18 00<rep 5Ah>             mb_info: times 90 db 0
+   214 00000C72 00<rep 240h>            mb_mmap: times MAX_E820*24 db 0

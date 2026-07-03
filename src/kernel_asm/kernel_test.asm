@@ -8,6 +8,11 @@ org 0x10000                        ; loaded here; entered by stage2 after the PM
 %endif
 
 start:
+    mov edi, 0xB8000               ; clear the screen (menu leftovers)
+    mov ecx, 80*25
+    mov ax, 0x0720
+    rep stosw
+
     mov esi, msg1
     mov edi, 0xB8000 + 160*2       ; row 2
     call puts
