@@ -254,6 +254,10 @@ run_menu:
     mul bx
     add ax, entry_name
     mov [find_name], ax
+    mov bx, [sel]                     ; expose the chosen label for the splash
+    shl bx, 1
+    mov ax, [entry_label+bx]
+    mov [sel_label], ax
     ret
 
 get_ticks:                            ; EAX = BIOS tick counter (BDA 0x046C)
@@ -387,6 +391,8 @@ print_at:
     pop ax
     ret
 
+sel_label:      dw def_name          ; -> chosen entry's label (read by splash)
+def_name:       db 'NyxOS', 0
 cfg_name:       db 'NYX     CFG'
 cfg_timeout:    dw 5
 cfg_default:    dw 0

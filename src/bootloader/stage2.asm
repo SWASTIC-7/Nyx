@@ -16,7 +16,8 @@ stage2_start:
     cld
 
     call fat_detect
-    call menu_main                       ; loads the chosen kernel to KERNEL_SEG:0
+    call menu_main                       ; menu: user picks a kernel (loads it to KERNEL_SEG:0)
+    call splash                          ; THEN the graphical splash (mode 13h, real mode)
     call enable_a20                      ; unlock memory above 1 MB (protected-mode prep)
     call get_e820                        ; grab the memory map (last BIOS call)
     call gdt_install                     ; point the CPU at our GDT
@@ -124,6 +125,7 @@ msg_diskerr: db 'Disk read error', 0x0D, 0x0A, 0
 %include "gdt.asm"
 %include "a20.asm"
 %include "e820.asm"
+%include "splash.asm"
 
 ; ---- the real -> protected mode switch --------------------------------------
 switch_to_pm:

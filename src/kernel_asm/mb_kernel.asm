@@ -20,14 +20,16 @@ real_start:
     mov ax, 0x0720
     rep stosw
 
-    mov esi, msg_ok
-    mov edi, 0xB8000
+    mov edi, 0xB8000               ; "Successfully booted to <name>, hi <name> user"
+    mov esi, msg_pre
     call puts
-
-    mov eax, [ebp+8]               ; mem_upper: usable KB above 1 MB (our E820 mmap)
-    mov edi, 0xB8000 + 160         ; row 1
-    call putnum
-    mov esi, msg_kb
+    mov esi, kname
+    call puts
+    mov esi, msg_mid
+    call puts
+    mov esi, kname
+    call puts
+    mov esi, msg_end
     call puts
     jmp .hang
 .bad:
@@ -53,32 +55,12 @@ puts:                              ; ESI = string, EDI = VGA ptr
     pop eax
     ret
 
-putnum:                            ; EAX = number, EDI = VGA ptr
-    push ebx
-    push ecx
-    push edx
-    mov ebx, 10
-    xor ecx, ecx
-.div:
-    xor edx, edx
-    div ebx
-    push edx
-    inc ecx
-    test eax, eax
-    jnz .div
-.emit:
-    pop eax
-    add al, '0'
-    mov [edi], al
-    mov byte [edi+1], 0x0A
-    add edi, 2
-    dec ecx
-    jnz .emit
-    pop edx
-    pop ecx
-    pop ebx
-    ret
-
-msg_ok:  db 'Multiboot handoff OK  (EAX=0x2BADB002, EBX -> info struct)', 0
-msg_kb:  db ' KB usable above 1MB  (from E820 via the Multiboot mmap)', 0
+%ifdef NYX2
+kname:   db 'NyxOS2', 0
+%else
+kname:   db 'NyxOS', 0
+%endif
+msg_pre: db 'Successfully booted to ', 0
+msg_mid: db ', hi ', 0
+msg_end: db ' user', 0
 msg_bad: db 'ERROR: not booted as Multiboot', 0

@@ -17,6 +17,7 @@ def u32(b, o): return struct.unpack_from("<I", b, o)[0]
 img_path  = sys.argv[1] if len(sys.argv) > 1 else "build/disk.img"
 kern_path = sys.argv[2] if len(sys.argv) > 2 else "build/kernel.bin"
 part_idx  = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+target    = (sys.argv[4].encode() if len(sys.argv) > 4 else b"KERNEL  BIN")
 img  = open(img_path, "rb").read()
 kern = open(kern_path, "rb").read()
 print(f"# checking {img_path} (partition {part_idx}, kernel {kern_path})")
@@ -34,7 +35,7 @@ def scan_dir(entries):
         e = entries[i:i+32]
         if e[0] == 0x00: return None
         if e[0] == 0xE5: continue
-        if e[0:11] == b"KERNEL  BIN":
+        if e[0:11] == target:
             first = (u16(e, 0x14) << 16) | u16(e, 0x1A)
             return first, u32(e, 28)
     return None
@@ -94,7 +95,7 @@ else:
         if c >= eoc: break
     expect_first = 3
 
-check("KERNEL.BIN found", found is not None)
+check(f"{target.decode().strip()} found", found is not None)
 if found is not None:
     first, size = found
     check(f"first cluster == {expect_first}", first == expect_first, f"={first}")

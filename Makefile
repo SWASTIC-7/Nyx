@@ -1,8 +1,11 @@
 # ============================================================================
-# Nyx bootloader - build & run
-# Run from the project root inside WSL:  make  |  make run  |  make clean
+# Nyx bootloader - build & run.  Run from the project root inside WSL.
+#   make        build the boot disk
+#   make run    boot it in QEMU (menu -> pick NyxOS / NyxOS2 -> splash -> kernel)
+#   make test   static image checks + runtime checkpoints
+#   make clean
 # ============================================================================
-.PHONY: all run clean test test-fat32 test-menu fat32 run-fat32 menu run-menu mb run-mb
+.PHONY: all run test clean
 
 BUILD_DIR := build
 SRC_DIR   := src/bootloader
@@ -10,13 +13,7 @@ KSRC_DIR  := src/kernel_asm
 
 NASM := nasm
 QEMU := qemu-system-i386
-GCC  := gcc
-LD   := ld
 BOOT_PART ?= 0
-
-KC_DIR    := src/kernel_c
-GCC_FLAGS := -m32 -ffreestanding -fno-pie -nostdlib -c -Wall -Wextra
-LD_FLAGS  := -m elf_i386 -T $(KC_DIR)/linker.ld --oformat binary
 
 all: $(BUILD_DIR)/disk.img
 
@@ -24,109 +21,35 @@ $(BUILD_DIR)/mbr.bin: $(SRC_DIR)/mbr.asm
 	mkdir -p $(BUILD_DIR)
 	$(NASM) -f bin $< -o $@ -l $(BUILD_DIR)/mbr.lst
 
-$(BUILD_DIR)/stage2.bin: $(SRC_DIR)/stage2.asm $(SRC_DIR)/fat12.asm $(SRC_DIR)/fat32.asm $(SRC_DIR)/menu.asm $(SRC_DIR)/gdt.asm $(SRC_DIR)/a20.asm $(SRC_DIR)/e820.asm
+$(BUILD_DIR)/stage2.bin: $(SRC_DIR)/stage2.asm $(SRC_DIR)/fat12.asm $(SRC_DIR)/fat32.asm $(SRC_DIR)/menu.asm $(SRC_DIR)/gdt.asm $(SRC_DIR)/a20.asm $(SRC_DIR)/e820.asm $(SRC_DIR)/splash.asm $(SRC_DIR)/glyphs.inc
 	mkdir -p $(BUILD_DIR)
 	$(NASM) -f bin -I $(SRC_DIR)/ -DBOOT_PART=$(BOOT_PART) $< -o $@ -l $(BUILD_DIR)/stage2.lst
 
-# The main kernel is a real 32-bit C kernel, entered after the PM switch
-$(BUILD_DIR)/kernel_entry.o: $(KC_DIR)/kernel_entry.asm
-	mkdir -p $(BUILD_DIR)
-	$(NASM) -f elf32 $< -o $@
-
-$(BUILD_DIR)/kernel_c.o: $(KC_DIR)/kernel.c
-	mkdir -p $(BUILD_DIR)
-	$(GCC) $(GCC_FLAGS) $< -o $@
-
-$(BUILD_DIR)/kernel.bin: $(BUILD_DIR)/kernel_entry.o $(BUILD_DIR)/kernel_c.o
-	$(LD) $(LD_FLAGS) $^ -o $@
-
-$(BUILD_DIR)/kernel_a.bin: $(KSRC_DIR)/kernel_test.asm
+# The two bootable kernels are Multiboot kernels built from one source
+$(BUILD_DIR)/nyxos.bin: $(KSRC_DIR)/mb_kernel.asm
 	mkdir -p $(BUILD_DIR)
 	$(NASM) -f bin $< -o $@
 
-$(BUILD_DIR)/kernel_b.bin: $(KSRC_DIR)/kernel_test.asm
+$(BUILD_DIR)/nyxos2.bin: $(KSRC_DIR)/mb_kernel.asm
 	mkdir -p $(BUILD_DIR)
-	$(NASM) -f bin -DKB $< -o $@
+	$(NASM) -f bin -DNYX2 $< -o $@
 
-# FAT12 disk: format, copy kernel as a file, install boot sector + stage2
-$(BUILD_DIR)/disk.img: $(BUILD_DIR)/mbr.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/kernel.bin
+# FAT12 boot disk: NYX.CFG + both kernels, then install MBR + stage2
+$(BUILD_DIR)/disk.img: $(BUILD_DIR)/mbr.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/nyxos.bin $(BUILD_DIR)/nyxos2.bin src/nyx.cfg
 	dd if=/dev/zero of=$@ bs=512 count=2880 2>/dev/null
 	mkfs.fat -F 12 -R 17 -r 224 -s 1 -S 512 -M 0xF0 $@ >/dev/null
-	mcopy -i $@ $(BUILD_DIR)/kernel.bin ::/KERNEL.BIN
-	dd if=$(BUILD_DIR)/mbr.bin    of=$@ bs=512 count=1  conv=notrunc 2>/dev/null
-	dd if=$(BUILD_DIR)/stage2.bin of=$@ bs=512 seek=1   conv=notrunc 2>/dev/null
-
-run: $(BUILD_DIR)/disk.img
-	$(QEMU) -drive format=raw,file=$(BUILD_DIR)/disk.img
-
-# ---- FAT32 variant: MBR + partition table, FAT32 partition at LBA 2048 ----
-fat32: $(BUILD_DIR)/disk_fat32.img
-
-$(BUILD_DIR)/mbr_fat32.bin: $(SRC_DIR)/mbr.asm
-	mkdir -p $(BUILD_DIR)
-	$(NASM) -f bin -DFAT32 $< -o $@ -l $(BUILD_DIR)/mbr_fat32.lst
-
-$(BUILD_DIR)/disk_fat32.img: $(BUILD_DIR)/mbr_fat32.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/kernel_a.bin $(BUILD_DIR)/kernel_b.bin
-	dd if=/dev/zero of=$(BUILD_DIR)/part1.img bs=1M count=40 2>/dev/null
-	mkfs.fat -F 32 -s 1 -h 2048 $(BUILD_DIR)/part1.img >/dev/null
-	mcopy -i $(BUILD_DIR)/part1.img $(BUILD_DIR)/kernel_a.bin ::/KERNEL.BIN
-	dd if=/dev/zero of=$(BUILD_DIR)/part2.img bs=1M count=40 2>/dev/null
-	mkfs.fat -F 32 -s 1 -h 83968 $(BUILD_DIR)/part2.img >/dev/null
-	mcopy -i $(BUILD_DIR)/part2.img $(BUILD_DIR)/kernel_b.bin ::/KERNEL.BIN
-	dd if=/dev/zero of=$@ bs=512 count=165888 2>/dev/null
-	dd if=$(BUILD_DIR)/mbr_fat32.bin of=$@ bs=512 count=1 conv=notrunc 2>/dev/null
-	dd if=$(BUILD_DIR)/stage2.bin    of=$@ bs=512 seek=1 conv=notrunc 2>/dev/null
-	dd if=$(BUILD_DIR)/part1.img     of=$@ bs=512 seek=2048  conv=notrunc 2>/dev/null
-	dd if=$(BUILD_DIR)/part2.img     of=$@ bs=512 seek=83968 conv=notrunc 2>/dev/null
-
-run-fat32: $(BUILD_DIR)/disk_fat32.img
-	$(QEMU) -drive format=raw,file=$(BUILD_DIR)/disk_fat32.img
-
-# ---- Boot-menu demo: FAT12 disk with NYX.CFG + two kernels ----
-menu: $(BUILD_DIR)/disk_menu.img
-
-$(BUILD_DIR)/disk_menu.img: $(BUILD_DIR)/mbr.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/kernel_a.bin $(BUILD_DIR)/kernel_b.bin src/nyx.cfg
-	dd if=/dev/zero of=$@ bs=512 count=2880 2>/dev/null
-	mkfs.fat -F 12 -R 17 -r 224 -s 1 -S 512 -M 0xF0 $@ >/dev/null
-	mcopy -i $@ $(BUILD_DIR)/kernel_a.bin ::/KERNELA.BIN
-	mcopy -i $@ $(BUILD_DIR)/kernel_b.bin ::/KERNELB.BIN
+	mcopy -i $@ $(BUILD_DIR)/nyxos.bin  ::/NYXOS.BIN
+	mcopy -i $@ $(BUILD_DIR)/nyxos2.bin ::/NYXOS2.BIN
 	mcopy -i $@ src/nyx.cfg ::/NYX.CFG
 	dd if=$(BUILD_DIR)/mbr.bin    of=$@ bs=512 count=1 conv=notrunc 2>/dev/null
 	dd if=$(BUILD_DIR)/stage2.bin of=$@ bs=512 seek=1 conv=notrunc 2>/dev/null
 
-run-menu: $(BUILD_DIR)/disk_menu.img
-	$(QEMU) -drive format=raw,file=$(BUILD_DIR)/disk_menu.img
+run: $(BUILD_DIR)/disk.img
+	$(QEMU) -drive format=raw,file=$(BUILD_DIR)/disk.img
 
-# ---- Multiboot demo: boot a foreign Multiboot kernel ----
-mb: $(BUILD_DIR)/disk_mb.img
-
-$(BUILD_DIR)/mb_kernel.bin: $(KSRC_DIR)/mb_kernel.asm
-	mkdir -p $(BUILD_DIR)
-	$(NASM) -f bin $< -o $@
-
-$(BUILD_DIR)/disk_mb.img: $(BUILD_DIR)/mbr.bin $(BUILD_DIR)/stage2.bin $(BUILD_DIR)/mb_kernel.bin
-	dd if=/dev/zero of=$@ bs=512 count=2880 2>/dev/null
-	mkfs.fat -F 12 -R 17 -r 224 -s 1 -S 512 -M 0xF0 $@ >/dev/null
-	mcopy -i $@ $(BUILD_DIR)/mb_kernel.bin ::/KERNEL.BIN
-	dd if=$(BUILD_DIR)/mbr.bin    of=$@ bs=512 count=1 conv=notrunc 2>/dev/null
-	dd if=$(BUILD_DIR)/stage2.bin of=$@ bs=512 seek=1 conv=notrunc 2>/dev/null
-
-run-mb: $(BUILD_DIR)/disk_mb.img
-	$(QEMU) -drive format=raw,file=$(BUILD_DIR)/disk_mb.img
-
-# Runtime checkpoints for the menu: config read + parsed into the entry table
-test-menu: menu
-	python3 tests/run_checkpoints.py $(BUILD_DIR)/disk_menu.img tests/checkpoints_menu.json
-
-# Run both test layers: static image checks, then runtime checkpoint checks
 test: all
-	python3 tests/check_image.py
-	python3 tests/run_checkpoints.py
-
-# Static layout checks for both FAT32 partitions
-test-fat32: fat32
-	python3 tests/check_image.py $(BUILD_DIR)/disk_fat32.img $(BUILD_DIR)/kernel_a.bin 0
-	python3 tests/check_image.py $(BUILD_DIR)/disk_fat32.img $(BUILD_DIR)/kernel_b.bin 1
+	python3 tests/check_image.py $(BUILD_DIR)/disk.img $(BUILD_DIR)/nyxos.bin 0 "NYXOS   BIN"
+	python3 tests/run_checkpoints.py $(BUILD_DIR)/disk.img tests/checkpoints_menu.json
 
 clean:
 	rm -rf $(BUILD_DIR)
