@@ -21,7 +21,7 @@
     21 00000014 E82D08                      call enable_a20                      ; unlock memory above 1 MB (protected-mode prep)
     22 00000017 E89208                      call get_e820                        ; grab the memory map (last BIOS call)
     23 0000001A E82108                      call gdt_install                     ; point the CPU at our GDT
-    24 0000001D E9BE0E                      jmp switch_to_pm
+    24 0000001D E94B15                      jmp switch_to_pm
     25                                  
     26                                  ; detect filesystem: set [fat_is32], [partition_start], [bpb_ptr]
     27                                  fat_detect:
@@ -1006,485 +1006,666 @@
     32 000008F0 0000                <1> e820_count: dw 0
     33 000008F2 00<rep 240h>        <1> e820_map:   times MAX_E820*24 db 0
    128                                  %include "splash.asm"
-     1                              <1> ; VGA mode 13h boot splash - draws the SELECTED kernel's name (NyxOS / NyxOS2)
-     2                              <1> ; as a large brushed-silver wordmark on black. Letters are hand-designed 24x32
-     3                              <1> ; glyphs (glyphs.inc) drawn at native resolution -> crisp, no scaling artifacts.
-     4                              <1> ; Real mode; shown after the menu selection, before the protected-mode switch.
-     5                              <1> 
-     6                              <1> VGA_SEG  equ 0xA000
-     7                              <1> LOGO_Y   equ 84                    ; top scanline of the wordmark
-     8                              <1> GLYPH_H  equ 32
-     9                              <1> GLYPH_SZ equ GLYPH_H*3             ; 96 bytes per glyph (3 bytes/row)
-    10                              <1> ADVANCE  equ 26                    ; glyph pitch (24 wide + 2 gap)
-    11                              <1> 
-    12                              <1> splash:
-    13 00000B32 B81300              <1>     mov ax, 0x0013                 ; mode 13h (320x200x256)
-    14 00000B35 CD10                <1>     int 0x10
-    15 00000B37 E81200              <1>     call splash_palette
-    16 00000B3A E83100              <1>     call splash_clear
-    17 00000B3D E83D00              <1>     call splash_logo
-    18 00000B40 E8DE00              <1>     call splash_line
-    19 00000B43 E8FF00              <1>     call splash_hold
-    20 00000B46 B80300              <1>     mov ax, 0x0003                 ; restore text mode
-    21 00000B49 CD10                <1>     int 0x10
-    22 00000B4B C3                  <1>     ret
-    23                              <1> 
-    24                              <1> splash_palette:
-    25 00000B4C B000                <1>     mov al, 0                      ; index 0 = black
-    26 00000B4E BAC803              <1>     mov dx, 0x3C8
-    27 00000B51 EE                  <1>     out dx, al
-    28 00000B52 BAC903              <1>     mov dx, 0x3C9
-    29 00000B55 30C0                <1>     xor al, al
-    30 00000B57 EE                  <1>     out dx, al
-    31 00000B58 EE                  <1>     out dx, al
-    32 00000B59 EE                  <1>     out dx, al
-    33 00000B5A B080                <1>     mov al, 128                    ; 128..135 = metallic silver gradient
-    34 00000B5C BAC803              <1>     mov dx, 0x3C8
-    35 00000B5F EE                  <1>     out dx, al
-    36 00000B60 BAC903              <1>     mov dx, 0x3C9
-    37 00000B63 BE[5A0C]            <1>     mov si, metal_pal
-    38 00000B66 B91800              <1>     mov cx, 24
-    39                              <1> .mp:
-    40 00000B69 AC                  <1>     lodsb
-    41 00000B6A EE                  <1>     out dx, al
-    42 00000B6B E2FC                <1>     loop .mp
-    43 00000B6D C3                  <1>     ret
+     1                              <1> ; VGA mode 12h boot splash (640x480, 16 colours - 4x the pixels of mode 13h, so
+     2                              <1> ; the wordmark is much sharper). Draws the SELECTED kernel name (NyxOS / NyxOS2)
+     3                              <1> ; as a large 48x64 wordmark in flat metallic silver on black. Mode 12h is planar,
+     4                              <1> ; so we write whole 8-pixel bytes via the VGA set/reset hardware (fast, no BIOS
+     5                              <1> ; per-pixel calls). Real mode; shown after the menu selection, before the switch.
+     6                              <1> 
+     7                              <1> VGA_SEG   equ 0xA000
+     8                              <1> SILVER    equ 7                    ; light-grey attribute, tinted to silver below
+     9                              <1> GLYPH_W   equ 48
+    10                              <1> GLYPH_H   equ 64
+    11                              <1> GBYTES    equ GLYPH_W/8            ; 6 bytes per glyph row
+    12                              <1> GLYPH_SZ  equ GBYTES*GLYPH_H       ; 384 bytes per glyph
+    13                              <1> ADVANCE   equ 56                   ; glyph pitch (byte-aligned: 7 bytes)
+    14                              <1> SCR_BYTES equ 80                   ; bytes per 640-pixel scanline
+    15                              <1> LOGO_Y    equ 208                  ; (480-64)/2
+    16                              <1> 
+    17                              <1> splash:
+    18 00000B32 B81200              <1>     mov ax, 0x0012                 ; mode 12h -> 640x480x16, screen cleared to black
+    19 00000B35 CD10                <1>     int 0x10
+    20 00000B37 B81010              <1>     mov ax, 0x1010                 ; tint attribute 7 to a cool metallic silver
+    21 00000B3A BB0700              <1>     mov bx, SILVER
+    22 00000B3D B62E                <1>     mov dh, 46
+    23 00000B3F B52E                <1>     mov ch, 46
+    24 00000B41 B134                <1>     mov cl, 52
+    25 00000B43 CD10                <1>     int 0x10
+    26 00000B45 E81200              <1>     call splash_setgc
+    27 00000B48 E82700              <1>     call splash_logo
+    28 00000B4B E8C100              <1>     call splash_line
+    29 00000B4E E81500              <1>     call splash_resetgc
+    30 00000B51 E8F600              <1>     call splash_hold
+    31 00000B54 B80300              <1>     mov ax, 0x0003                 ; restore text mode
+    32 00000B57 CD10                <1>     int 0x10
+    33 00000B59 C3                  <1>     ret
+    34                              <1> 
+    35                              <1> ; program the Graphics Controller: every CPU write paints silver on the bits set
+    36                              <1> ; in the Bit Mask register, leaving the rest untouched (read latches the old data)
+    37                              <1> splash_setgc:
+    38 00000B5A BACE03              <1>     mov dx, 0x3CE
+    39 00000B5D B80007              <1>     mov ax, (SILVER<<8) | 0x00     ; GC0 Set/Reset = silver colour
+    40 00000B60 EF                  <1>     out dx, ax
+    41 00000B61 B8010F              <1>     mov ax, 0x0F01                 ; GC1 Enable Set/Reset = all 4 planes
+    42 00000B64 EF                  <1>     out dx, ax
+    43 00000B65 C3                  <1>     ret
     44                              <1> 
-    45                              <1> splash_clear:
-    46 00000B6E B800A0              <1>     mov ax, VGA_SEG
-    47 00000B71 8EC0                <1>     mov es, ax
-    48 00000B73 31FF                <1>     xor di, di
-    49 00000B75 30C0                <1>     xor al, al
-    50 00000B77 B900FA              <1>     mov cx, 64000
-    51 00000B7A F3AA                <1>     rep stosb
-    52 00000B7C C3                  <1>     ret
-    53                              <1> 
-    54                              <1> splash_logo:
-    55 00000B7D B800A0              <1>     mov ax, VGA_SEG
-    56 00000B80 8EC0                <1>     mov es, ax
-    57 00000B82 8B36[D506]          <1>     mov si, [sel_label]            ; count characters in the chosen name
-    58 00000B86 31C9                <1>     xor cx, cx
-    59                              <1> .cnt:
-    60 00000B88 803C00              <1>     cmp byte [si], 0
-    61 00000B8B 7404                <1>     je .cdone
-    62 00000B8D 46                  <1>     inc si
-    63 00000B8E 41                  <1>     inc cx
-    64 00000B8F EBF7                <1>     jmp .cnt
-    65                              <1> .cdone:
-    66 00000B91 B81A00              <1>     mov ax, ADVANCE                ; word width = count * pitch
-    67 00000B94 F7E1                <1>     mul cx
-    68 00000B96 A3[740C]            <1>     mov [word_w], ax
-    69 00000B99 BB4001              <1>     mov bx, 320                    ; centre it
-    70 00000B9C 29C3                <1>     sub bx, ax
-    71 00000B9E D1EB                <1>     shr bx, 1
-    72 00000BA0 891E[720C]          <1>     mov [word_x0], bx
-    73 00000BA4 891E[760C]          <1>     mov [cur_x], bx
-    74 00000BA8 8B36[D506]          <1>     mov si, [sel_label]
+    45                              <1> splash_resetgc:
+    46 00000B66 BACE03              <1>     mov dx, 0x3CE
+    47 00000B69 B808FF              <1>     mov ax, 0xFF08                 ; GC8 Bit Mask = 0xFF (restore default)
+    48 00000B6C EF                  <1>     out dx, ax
+    49 00000B6D B80100              <1>     mov ax, 0x0001                 ; GC1 Enable Set/Reset = 0
+    50 00000B70 EF                  <1>     out dx, ax
+    51 00000B71 C3                  <1>     ret
+    52                              <1> 
+    53                              <1> splash_logo:
+    54 00000B72 B800A0              <1>     mov ax, VGA_SEG
+    55 00000B75 8EC0                <1>     mov es, ax
+    56 00000B77 8B36[D506]          <1>     mov si, [sel_label]            ; count characters in the chosen name
+    57 00000B7B 31C9                <1>     xor cx, cx
+    58                              <1> .cnt:
+    59 00000B7D 803C00              <1>     cmp byte [si], 0
+    60 00000B80 7404                <1>     je .cdone
+    61 00000B82 46                  <1>     inc si
+    62 00000B83 41                  <1>     inc cx
+    63 00000B84 EBF7                <1>     jmp .cnt
+    64                              <1> .cdone:
+    65 00000B86 B83800              <1>     mov ax, ADVANCE                ; word width = count * pitch
+    66 00000B89 F7E1                <1>     mul cx
+    67 00000B8B A3[610C]            <1>     mov [word_w], ax
+    68 00000B8E BB8002              <1>     mov bx, 640                    ; centre, then byte-align the start x
+    69 00000B91 29C3                <1>     sub bx, ax
+    70 00000B93 D1EB                <1>     shr bx, 1
+    71 00000B95 83E3F8              <1>     and bx, 0xFFF8
+    72 00000B98 891E[5F0C]          <1>     mov [word_x0], bx
+    73 00000B9C 891E[630C]          <1>     mov [cur_x], bx
+    74 00000BA0 8B36[D506]          <1>     mov si, [sel_label]
     75                              <1> .dc:
-    76 00000BAC 8A04                <1>     mov al, [si]
-    77 00000BAE 84C0                <1>     test al, al
-    78 00000BB0 740D                <1>     jz .done
-    79 00000BB2 56                  <1>     push si
-    80 00000BB3 E80A00              <1>     call draw_glyph
-    81 00000BB6 8306[760C]1A        <1>     add word [cur_x], ADVANCE
-    82 00000BBB 5E                  <1>     pop si
-    83 00000BBC 46                  <1>     inc si
-    84 00000BBD EBED                <1>     jmp .dc
+    76 00000BA4 8A04                <1>     mov al, [si]
+    77 00000BA6 84C0                <1>     test al, al
+    78 00000BA8 740D                <1>     jz .done
+    79 00000BAA 56                  <1>     push si
+    80 00000BAB E80A00              <1>     call draw_glyph
+    81 00000BAE 8306[630C]38        <1>     add word [cur_x], ADVANCE
+    82 00000BB3 5E                  <1>     pop si
+    83 00000BB4 46                  <1>     inc si
+    84 00000BB5 EBED                <1>     jmp .dc
     85                              <1> .done:
-    86 00000BBF C3                  <1>     ret
+    86 00000BB7 C3                  <1>     ret
     87                              <1> 
-    88                              <1> ; AL = char; draw its 24x32 glyph at [cur_x],LOGO_Y in silver (unknown -> blank)
+    88                              <1> ; AL = char; draw its 48x64 glyph at [cur_x](byte-aligned),LOGO_Y (unknown -> blank)
     89                              <1> draw_glyph:
-    90 00000BC0 56                  <1>     push si
-    91 00000BC1 BE[780C]            <1>     mov si, glyph_chars
-    92 00000BC4 31DB                <1>     xor bx, bx
+    90 00000BB8 56                  <1>     push si
+    91 00000BB9 BE[650C]            <1>     mov si, glyph_chars
+    92 00000BBC 31DB                <1>     xor bx, bx
     93                              <1> .find:
-    94 00000BC6 83FB06              <1>     cmp bx, 6
-    95 00000BC9 7344                <1>     jae .skip
-    96 00000BCB 3A04                <1>     cmp al, [si]
-    97 00000BCD 7404                <1>     je .got
-    98 00000BCF 46                  <1>     inc si
-    99 00000BD0 43                  <1>     inc bx
-   100 00000BD1 EBF3                <1>     jmp .find
+    94 00000BBE 83FB06              <1>     cmp bx, 6
+    95 00000BC1 734A                <1>     jae .skip
+    96 00000BC3 3A04                <1>     cmp al, [si]
+    97 00000BC5 7404                <1>     je .got
+    98 00000BC7 46                  <1>     inc si
+    99 00000BC8 43                  <1>     inc bx
+   100 00000BC9 EBF3                <1>     jmp .find
    101                              <1> .got:
-   102 00000BD3 B86000              <1>     mov ax, GLYPH_SZ
-   103 00000BD6 F7E3                <1>     mul bx
-   104 00000BD8 BE[9E0C]            <1>     mov si, glyph_data
-   105 00000BDB 01C6                <1>     add si, ax                     ; si -> glyph's 32 rows
-   106 00000BDD B85400              <1>     mov ax, LOGO_Y
-   107 00000BE0 BA4001              <1>     mov dx, 320
-   108 00000BE3 F7E2                <1>     mul dx
-   109 00000BE5 0306[760C]          <1>     add ax, [cur_x]
-   110 00000BE9 89C7                <1>     mov di, ax                     ; di -> first scanline
-   111 00000BEB 31ED                <1>     xor bp, bp                     ; row 0..31
-   112                              <1> .row:
-   113 00000BED B280                <1>     mov dl, 128                    ; one flat metallic silver (no gradient)
-   114 00000BEF 57                  <1>     push di
-   115 00000BF0 8A24                <1>     mov ah, [si]                   ; 3 bytes -> 24 px, MSB = leftmost
-   116 00000BF2 E81C00              <1>     call emit8
-   117 00000BF5 8A6401              <1>     mov ah, [si+1]
-   118 00000BF8 E81600              <1>     call emit8
-   119 00000BFB 8A6402              <1>     mov ah, [si+2]
-   120 00000BFE E81000              <1>     call emit8
-   121 00000C01 83C603              <1>     add si, 3
-   122 00000C04 5F                  <1>     pop di
-   123 00000C05 81C74001            <1>     add di, 320
-   124 00000C09 45                  <1>     inc bp
-   125 00000C0A 83FD20              <1>     cmp bp, GLYPH_H
-   126 00000C0D 72DE                <1>     jb .row
-   127                              <1> .skip:
-   128 00000C0F 5E                  <1>     pop si
-   129 00000C10 C3                  <1>     ret
-   130                              <1> 
-   131                              <1> emit8:                              ; draw 8 px from AH (MSB first), shade DL
-   132 00000C11 51                  <1>     push cx
-   133 00000C12 B90800              <1>     mov cx, 8
-   134                              <1> .b:
-   135 00000C15 D0E4                <1>     shl ah, 1
-   136 00000C17 7303                <1>     jnc .n
-   137 00000C19 268815              <1>     mov [es:di], dl
-   138                              <1> .n:
-   139 00000C1C 47                  <1>     inc di
-   140 00000C1D E2F6                <1>     loop .b
-   141 00000C1F 59                  <1>     pop cx
-   142 00000C20 C3                  <1>     ret
-   143                              <1> 
-   144                              <1> splash_line:                        ; silver underline spanning the word
-   145 00000C21 B800A0              <1>     mov ax, VGA_SEG
-   146 00000C24 8EC0                <1>     mov es, ax
-   147 00000C26 BD7A00              <1>     mov bp, 122
-   148                              <1> .ly:
-   149 00000C29 89E8                <1>     mov ax, bp
-   150 00000C2B BB4001              <1>     mov bx, 320
-   151 00000C2E F7E3                <1>     mul bx
-   152 00000C30 0306[720C]          <1>     add ax, [word_x0]
-   153 00000C34 89C7                <1>     mov di, ax
-   154 00000C36 B083                <1>     mov al, 131
-   155 00000C38 8B0E[740C]          <1>     mov cx, [word_w]
-   156 00000C3C F3AA                <1>     rep stosb
-   157 00000C3E 45                  <1>     inc bp
-   158 00000C3F 83FD7C              <1>     cmp bp, 124
-   159 00000C42 72E5                <1>     jb .ly
-   160 00000C44 C3                  <1>     ret
-   161                              <1> 
-   162                              <1> splash_hold:
-   163 00000C45 66A16C04            <1>     mov eax, [0x046C]             ; BIOS tick counter
-   164 00000C49 6689C3              <1>     mov ebx, eax
-   165                              <1> .w:
-   166 00000C4C 66A16C04            <1>     mov eax, [0x046C]
-   167 00000C50 6629D8              <1>     sub eax, ebx
-   168 00000C53 6683F828            <1>     cmp eax, 40                   ; minimum ~2.2 s on screen
-   169 00000C57 72F3                <1>     jb .w
-   170 00000C59 C3                  <1>     ret
-   171                              <1> 
-   172                              <1> metal_pal:                         ; RGB (6-bit) for silver shades 128..135
-   173 00000C5A 38383E              <1>     db 56,56,62
-   174 00000C5D 3E3E3F              <1>     db 62,62,63
-   175 00000C60 34343A              <1>     db 52,52,58
-   176 00000C63 2A2A32              <1>     db 42,42,50
-   177 00000C66 303036              <1>     db 48,48,54
-   178 00000C69 24242C              <1>     db 36,36,44
-   179 00000C6C 1E1E28              <1>     db 30,30,40
-   180 00000C6F 181822              <1>     db 24,24,34
-   181 00000C72 0000                <1> word_x0: dw 0
-   182 00000C74 0000                <1> word_w:  dw 0
-   183 00000C76 0000                <1> cur_x:   dw 0
-   184                              <1> %include "glyphs.inc"
-     1                              <2> ; generated by genglyphs.py - do not edit. 24x32 glyphs, 3 bytes/row.
-     2 00000C78 4E79784F5332        <2> glyph_chars: db "NyxOS2"
-     3                              <2> shade_lut:
-     4 00000C7E 808080808181818182- <2>     db 128, 128, 128, 128, 129, 129, 129, 129, 130, 130, 130, 130, 131, 131, 131, 131, 132, 132, 132, 132, 133, 133, 133, 133, 134, 134, 134, 134, 135, 135, 135, 135
-     4 00000C87 828282838383838484- <2>
-     4 00000C90 848485858585868686- <2>
-     4 00000C99 8687878787          <2>
-     5                              <2> glyph_data:
-     6                              <2>     ; N
-     7 00000C9E 000000              <2>     db   0,  0,  0
-     8 00000CA1 000000              <2>     db   0,  0,  0
-     9 00000CA4 38001C              <2>     db  56,  0, 28
-    10 00000CA7 3C001C              <2>     db  60,  0, 28
-    11 00000CAA 3C001C              <2>     db  60,  0, 28
-    12 00000CAD 3E001C              <2>     db  62,  0, 28
-    13 00000CB0 3F001C              <2>     db  63,  0, 28
-    14 00000CB3 3F801C              <2>     db  63,128, 28
-    15 00000CB6 3F801C              <2>     db  63,128, 28
-    16 00000CB9 3BC01C              <2>     db  59,192, 28
-    17 00000CBC 3BE01C              <2>     db  59,224, 28
-    18 00000CBF 39E01C              <2>     db  57,224, 28
-    19 00000CC2 38F01C              <2>     db  56,240, 28
-    20 00000CC5 38F81C              <2>     db  56,248, 28
-    21 00000CC8 387C1C              <2>     db  56,124, 28
-    22 00000CCB 383C1C              <2>     db  56, 60, 28
-    23 00000CCE 381E1C              <2>     db  56, 30, 28
-    24 00000CD1 381F1C              <2>     db  56, 31, 28
-    25 00000CD4 380F1C              <2>     db  56, 15, 28
-    26 00000CD7 38079C              <2>     db  56,  7,156
-    27 00000CDA 3807DC              <2>     db  56,  7,220
-    28 00000CDD 3803DC              <2>     db  56,  3,220
-    29 00000CE0 3801FC              <2>     db  56,  1,252
-    30 00000CE3 3801FC              <2>     db  56,  1,252
-    31 00000CE6 3800FC              <2>     db  56,  0,252
-    32 00000CE9 38007C              <2>     db  56,  0,124
-    33 00000CEC 38003C              <2>     db  56,  0, 60
-    34 00000CEF 38003C              <2>     db  56,  0, 60
-    35 00000CF2 38001C              <2>     db  56,  0, 28
-    36 00000CF5 000000              <2>     db   0,  0,  0
-    37 00000CF8 000000              <2>     db   0,  0,  0
-    38 00000CFB 000000              <2>     db   0,  0,  0
-    39                              <2>     ; y
-    40 00000CFE 000000              <2>     db   0,  0,  0
-    41 00000D01 000000              <2>     db   0,  0,  0
-    42 00000D04 000000              <2>     db   0,  0,  0
-    43 00000D07 000000              <2>     db   0,  0,  0
-    44 00000D0A 000000              <2>     db   0,  0,  0
-    45 00000D0D 000000              <2>     db   0,  0,  0
-    46 00000D10 000000              <2>     db   0,  0,  0
-    47 00000D13 000000              <2>     db   0,  0,  0
-    48 00000D16 000000              <2>     db   0,  0,  0
-    49 00000D19 000000              <2>     db   0,  0,  0
-    50 00000D1C 38001C              <2>     db  56,  0, 28
-    51 00000D1F 3C003C              <2>     db  60,  0, 60
-    52 00000D22 3C007C              <2>     db  60,  0,124
-    53 00000D25 1E0078              <2>     db  30,  0,120
-    54 00000D28 1F00F0              <2>     db  31,  0,240
-    55 00000D2B 0F01F0              <2>     db  15,  1,240
-    56 00000D2E 0783E0              <2>     db   7,131,224
-    57 00000D31 07C3C0              <2>     db   7,195,192
-    58 00000D34 03C780              <2>     db   3,199,128
-    59 00000D37 01EF80              <2>     db   1,239,128
-    60 00000D3A 01FF00              <2>     db   1,255,  0
-    61 00000D3D 00FE00              <2>     db   0,254,  0
-    62 00000D40 007C00              <2>     db   0,124,  0
-    63 00000D43 007C00              <2>     db   0,124,  0
-    64 00000D46 00F800              <2>     db   0,248,  0
-    65 00000D49 00F000              <2>     db   0,240,  0
-    66 00000D4C 01E000              <2>     db   1,224,  0
-    67 00000D4F 03E000              <2>     db   3,224,  0
-    68 00000D52 07C000              <2>     db   7,192,  0
-    69 00000D55 078000              <2>     db   7,128,  0
-    70 00000D58 0F0000              <2>     db  15,  0,  0
-    71 00000D5B 0F0000              <2>     db  15,  0,  0
-    72                              <2>     ; x
-    73 00000D5E 000000              <2>     db   0,  0,  0
-    74 00000D61 000000              <2>     db   0,  0,  0
-    75 00000D64 000000              <2>     db   0,  0,  0
-    76 00000D67 000000              <2>     db   0,  0,  0
-    77 00000D6A 000000              <2>     db   0,  0,  0
-    78 00000D6D 000000              <2>     db   0,  0,  0
-    79 00000D70 000000              <2>     db   0,  0,  0
-    80 00000D73 000000              <2>     db   0,  0,  0
-    81 00000D76 000000              <2>     db   0,  0,  0
-    82 00000D79 000000              <2>     db   0,  0,  0
-    83 00000D7C 38001C              <2>     db  56,  0, 28
-    84 00000D7F 3C003C              <2>     db  60,  0, 60
-    85 00000D82 3E007C              <2>     db  62,  0,124
-    86 00000D85 1F00F8              <2>     db  31,  0,248
-    87 00000D88 0F81F0              <2>     db  15,129,240
-    88 00000D8B 07C3E0              <2>     db   7,195,224
-    89 00000D8E 03E7C0              <2>     db   3,231,192
-    90 00000D91 01FF80              <2>     db   1,255,128
-    91 00000D94 00FF00              <2>     db   0,255,  0
-    92 00000D97 007E00              <2>     db   0,126,  0
-    93 00000D9A 00FF00              <2>     db   0,255,  0
-    94 00000D9D 01FF80              <2>     db   1,255,128
-    95 00000DA0 03E7C0              <2>     db   3,231,192
-    96 00000DA3 07C3E0              <2>     db   7,195,224
-    97 00000DA6 0F81F0              <2>     db  15,129,240
-    98 00000DA9 1F00F8              <2>     db  31,  0,248
-    99 00000DAC 3E007C              <2>     db  62,  0,124
-   100 00000DAF 3C003C              <2>     db  60,  0, 60
-   101 00000DB2 38001C              <2>     db  56,  0, 28
-   102 00000DB5 000000              <2>     db   0,  0,  0
-   103 00000DB8 000000              <2>     db   0,  0,  0
-   104 00000DBB 000000              <2>     db   0,  0,  0
-   105                              <2>     ; O
-   106 00000DBE 000000              <2>     db   0,  0,  0
-   107 00000DC1 000000              <2>     db   0,  0,  0
-   108 00000DC4 01FF00              <2>     db   1,255,  0
-   109 00000DC7 03FF80              <2>     db   3,255,128
-   110 00000DCA 07FFC0              <2>     db   7,255,192
-   111 00000DCD 0FC7E0              <2>     db  15,199,224
-   112 00000DD0 1F83F0              <2>     db  31,131,240
-   113 00000DD3 3E00F8              <2>     db  62,  0,248
-   114 00000DD6 3E00F8              <2>     db  62,  0,248
-   115 00000DD9 3C0078              <2>     db  60,  0,120
-   116 00000DDC 78003C              <2>     db 120,  0, 60
-   117 00000DDF 78003C              <2>     db 120,  0, 60
-   118 00000DE2 78003C              <2>     db 120,  0, 60
-   119 00000DE5 70001C              <2>     db 112,  0, 28
-   120 00000DE8 70001C              <2>     db 112,  0, 28
-   121 00000DEB 70001C              <2>     db 112,  0, 28
-   122 00000DEE 70001C              <2>     db 112,  0, 28
-   123 00000DF1 70001C              <2>     db 112,  0, 28
-   124 00000DF4 78003C              <2>     db 120,  0, 60
-   125 00000DF7 78003C              <2>     db 120,  0, 60
-   126 00000DFA 78003C              <2>     db 120,  0, 60
-   127 00000DFD 3C0078              <2>     db  60,  0,120
-   128 00000E00 3E00F8              <2>     db  62,  0,248
-   129 00000E03 3E00F8              <2>     db  62,  0,248
-   130 00000E06 1F83F0              <2>     db  31,131,240
-   131 00000E09 0FC7E0              <2>     db  15,199,224
-   132 00000E0C 07FFC0              <2>     db   7,255,192
-   133 00000E0F 03FF80              <2>     db   3,255,128
-   134 00000E12 01FF00              <2>     db   1,255,  0
-   135 00000E15 000000              <2>     db   0,  0,  0
-   136 00000E18 000000              <2>     db   0,  0,  0
-   137 00000E1B 000000              <2>     db   0,  0,  0
-   138                              <2>     ; S
-   139 00000E1E 000000              <2>     db   0,  0,  0
-   140 00000E21 000000              <2>     db   0,  0,  0
-   141 00000E24 3FFFFC              <2>     db  63,255,252
-   142 00000E27 3FFFFC              <2>     db  63,255,252
-   143 00000E2A 3FFFFC              <2>     db  63,255,252
-   144 00000E2D 380000              <2>     db  56,  0,  0
-   145 00000E30 380000              <2>     db  56,  0,  0
-   146 00000E33 380000              <2>     db  56,  0,  0
-   147 00000E36 380000              <2>     db  56,  0,  0
-   148 00000E39 380000              <2>     db  56,  0,  0
-   149 00000E3C 380000              <2>     db  56,  0,  0
-   150 00000E3F 380000              <2>     db  56,  0,  0
-   151 00000E42 380000              <2>     db  56,  0,  0
-   152 00000E45 380000              <2>     db  56,  0,  0
-   153 00000E48 3FFFFC              <2>     db  63,255,252
-   154 00000E4B 3FFFFC              <2>     db  63,255,252
-   155 00000E4E 3FFFFC              <2>     db  63,255,252
-   156 00000E51 00001C              <2>     db   0,  0, 28
-   157 00000E54 00001C              <2>     db   0,  0, 28
-   158 00000E57 00001C              <2>     db   0,  0, 28
-   159 00000E5A 00001C              <2>     db   0,  0, 28
-   160 00000E5D 00001C              <2>     db   0,  0, 28
-   161 00000E60 00001C              <2>     db   0,  0, 28
-   162 00000E63 00001C              <2>     db   0,  0, 28
-   163 00000E66 00001C              <2>     db   0,  0, 28
-   164 00000E69 00001C              <2>     db   0,  0, 28
-   165 00000E6C 3FFFFC              <2>     db  63,255,252
-   166 00000E6F 3FFFFC              <2>     db  63,255,252
-   167 00000E72 3FFFFC              <2>     db  63,255,252
-   168 00000E75 000000              <2>     db   0,  0,  0
-   169 00000E78 000000              <2>     db   0,  0,  0
-   170 00000E7B 000000              <2>     db   0,  0,  0
-   171                              <2>     ; 2
-   172 00000E7E 000000              <2>     db   0,  0,  0
-   173 00000E81 000000              <2>     db   0,  0,  0
-   174 00000E84 3FFFFC              <2>     db  63,255,252
-   175 00000E87 3FFFFC              <2>     db  63,255,252
-   176 00000E8A 3FFFFC              <2>     db  63,255,252
-   177 00000E8D 00001C              <2>     db   0,  0, 28
-   178 00000E90 00001C              <2>     db   0,  0, 28
-   179 00000E93 00001C              <2>     db   0,  0, 28
-   180 00000E96 00001C              <2>     db   0,  0, 28
-   181 00000E99 00001C              <2>     db   0,  0, 28
-   182 00000E9C 00001C              <2>     db   0,  0, 28
-   183 00000E9F 00001C              <2>     db   0,  0, 28
-   184 00000EA2 00001C              <2>     db   0,  0, 28
-   185 00000EA5 00001C              <2>     db   0,  0, 28
-   186 00000EA8 00001C              <2>     db   0,  0, 28
-   187 00000EAB 00001C              <2>     db   0,  0, 28
-   188 00000EAE 00007C              <2>     db   0,  0,124
-   189 00000EB1 0000FC              <2>     db   0,  0,252
-   190 00000EB4 0003F8              <2>     db   0,  3,248
-   191 00000EB7 0007E0              <2>     db   0,  7,224
-   192 00000EBA 001FC0              <2>     db   0, 31,192
-   193 00000EBD 007F00              <2>     db   0,127,  0
-   194 00000EC0 00FE00              <2>     db   0,254,  0
-   195 00000EC3 03F800              <2>     db   3,248,  0
-   196 00000EC6 07E000              <2>     db   7,224,  0
-   197 00000EC9 1FC000              <2>     db  31,192,  0
-   198 00000ECC 3FFFFC              <2>     db  63,255,252
-   199 00000ECF 3FFFFC              <2>     db  63,255,252
-   200 00000ED2 3FFFFC              <2>     db  63,255,252
-   201 00000ED5 000000              <2>     db   0,  0,  0
-   202 00000ED8 000000              <2>     db   0,  0,  0
-   203 00000EDB 000000              <2>     db   0,  0,  0
+   102 00000BCB B88001              <1>     mov ax, GLYPH_SZ
+   103 00000BCE F7E3                <1>     mul bx
+   104 00000BD0 BE[6B0C]            <1>     mov si, glyph_data
+   105 00000BD3 01C6                <1>     add si, ax                     ; si -> glyph's rows (GBYTES bytes each)
+   106 00000BD5 B8D000              <1>     mov ax, LOGO_Y                 ; di = top-left screen byte
+   107 00000BD8 BB5000              <1>     mov bx, SCR_BYTES
+   108 00000BDB F7E3                <1>     mul bx
+   109 00000BDD 8B1E[630C]          <1>     mov bx, [cur_x]
+   110 00000BE1 C1EB03              <1>     shr bx, 3                      ; pixel x -> byte column
+   111 00000BE4 01D8                <1>     add ax, bx
+   112 00000BE6 89C7                <1>     mov di, ax
+   113 00000BE8 BD4000              <1>     mov bp, GLYPH_H
+   114                              <1> .row:
+   115 00000BEB 57                  <1>     push di
+   116 00000BEC 31C9                <1>     xor cx, cx                     ; byte 0..GBYTES-1
+   117                              <1> .byte:
+   118 00000BEE 8A24                <1>     mov ah, [si]                   ; glyph byte = which pixels to paint
+   119 00000BF0 46                  <1>     inc si
+   120 00000BF1 B008                <1>     mov al, 8                      ; GC8 Bit Mask = glyph byte
+   121 00000BF3 BACE03              <1>     mov dx, 0x3CE
+   122 00000BF6 EF                  <1>     out dx, ax
+   123 00000BF7 89CB                <1>     mov bx, cx
+   124 00000BF9 268A11              <1>     mov dl, [es:di+bx]             ; read -> load latches (dummy)
+   125 00000BFC 26C601FF            <1>     mov byte [es:di+bx], 0xFF      ; write -> silver where the mask bit is 1
+   126 00000C00 41                  <1>     inc cx
+   127 00000C01 83F906              <1>     cmp cx, GBYTES
+   128 00000C04 72E8                <1>     jb .byte
+   129 00000C06 5F                  <1>     pop di
+   130 00000C07 83C750              <1>     add di, SCR_BYTES              ; next scanline
+   131 00000C0A 4D                  <1>     dec bp
+   132 00000C0B 75DE                <1>     jnz .row
+   133                              <1> .skip:
+   134 00000C0D 5E                  <1>     pop si
+   135 00000C0E C3                  <1>     ret
+   136                              <1> 
+   137                              <1> splash_line:                        ; silver underline spanning the word
+   138 00000C0F B800A0              <1>     mov ax, VGA_SEG
+   139 00000C12 8EC0                <1>     mov es, ax
+   140 00000C14 BACE03              <1>     mov dx, 0x3CE
+   141 00000C17 B808FF              <1>     mov ax, 0xFF08                 ; full-byte writes
+   142 00000C1A EF                  <1>     out dx, ax
+   143 00000C1B BD2001              <1>     mov bp, 288
+   144                              <1> .ly:
+   145 00000C1E 89E8                <1>     mov ax, bp
+   146 00000C20 BB5000              <1>     mov bx, SCR_BYTES
+   147 00000C23 F7E3                <1>     mul bx
+   148 00000C25 8B1E[5F0C]          <1>     mov bx, [word_x0]
+   149 00000C29 C1EB03              <1>     shr bx, 3
+   150 00000C2C 01D8                <1>     add ax, bx
+   151 00000C2E 89C7                <1>     mov di, ax
+   152 00000C30 8B0E[610C]          <1>     mov cx, [word_w]
+   153 00000C34 C1E903              <1>     shr cx, 3
+   154                              <1> .lx:
+   155 00000C37 268A1D              <1>     mov bl, [es:di]                ; latch
+   156 00000C3A 26C605FF            <1>     mov byte [es:di], 0xFF
+   157 00000C3E 47                  <1>     inc di
+   158 00000C3F 49                  <1>     dec cx
+   159 00000C40 75F5                <1>     jnz .lx
+   160 00000C42 45                  <1>     inc bp
+   161 00000C43 81FD2301            <1>     cmp bp, 291
+   162 00000C47 72D5                <1>     jb .ly
+   163 00000C49 C3                  <1>     ret
+   164                              <1> 
+   165                              <1> splash_hold:
+   166 00000C4A 66A16C04            <1>     mov eax, [0x046C]             ; BIOS tick counter
+   167 00000C4E 6689C3              <1>     mov ebx, eax
+   168                              <1> .w:
+   169 00000C51 66A16C04            <1>     mov eax, [0x046C]
+   170 00000C55 6629D8              <1>     sub eax, ebx
+   171 00000C58 6683F828            <1>     cmp eax, 40                   ; minimum ~2.2 s on screen
+   172 00000C5C 72F3                <1>     jb .w
+   173 00000C5E C3                  <1>     ret
+   174                              <1> 
+   175 00000C5F 0000                <1> word_x0: dw 0
+   176 00000C61 0000                <1> word_w:  dw 0
+   177 00000C63 0000                <1> cur_x:   dw 0
+   178                              <1> %include "glyphs.inc"
+     1                              <2> ; generated by genglyphs.py - do not edit. 48x64 glyphs, 6 bytes/row.
+     2 00000C65 4E79784F5332        <2> glyph_chars: db "NyxOS2"
+     3                              <2> glyph_data:
+     4                              <2>     ; N
+     5 00000C6B 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+     6 00000C71 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+     7 00000C77 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+     8 00000C7D 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+     9 00000C83 0F80000003E0        <2>     db  15, 128,   0,   0,   3, 224
+    10 00000C89 0FC0000003E0        <2>     db  15, 192,   0,   0,   3, 224
+    11 00000C8F 0FC0000003E0        <2>     db  15, 192,   0,   0,   3, 224
+    12 00000C95 0FE0000003E0        <2>     db  15, 224,   0,   0,   3, 224
+    13 00000C9B 0FF0000003E0        <2>     db  15, 240,   0,   0,   3, 224
+    14 00000CA1 0FF8000003E0        <2>     db  15, 248,   0,   0,   3, 224
+    15 00000CA7 0FF8000003E0        <2>     db  15, 248,   0,   0,   3, 224
+    16 00000CAD 0FFC000003E0        <2>     db  15, 252,   0,   0,   3, 224
+    17 00000CB3 0FFE000003E0        <2>     db  15, 254,   0,   0,   3, 224
+    18 00000CB9 0FFE000003E0        <2>     db  15, 254,   0,   0,   3, 224
+    19 00000CBF 0FFF000003E0        <2>     db  15, 255,   0,   0,   3, 224
+    20 00000CC5 0FFF800003E0        <2>     db  15, 255, 128,   0,   3, 224
+    21 00000CCB 0FBFC00003E0        <2>     db  15, 191, 192,   0,   3, 224
+    22 00000CD1 0FBFC00003E0        <2>     db  15, 191, 192,   0,   3, 224
+    23 00000CD7 0F9FE00003E0        <2>     db  15, 159, 224,   0,   3, 224
+    24 00000CDD 0F8FF00003E0        <2>     db  15, 143, 240,   0,   3, 224
+    25 00000CE3 0F87F00003E0        <2>     db  15, 135, 240,   0,   3, 224
+    26 00000CE9 0F87F80003E0        <2>     db  15, 135, 248,   0,   3, 224
+    27 00000CEF 0F83FC0003E0        <2>     db  15, 131, 252,   0,   3, 224
+    28 00000CF5 0F81FC0003E0        <2>     db  15, 129, 252,   0,   3, 224
+    29 00000CFB 0F81FE0003E0        <2>     db  15, 129, 254,   0,   3, 224
+    30 00000D01 0F80FF0003E0        <2>     db  15, 128, 255,   0,   3, 224
+    31 00000D07 0F807F8003E0        <2>     db  15, 128, 127, 128,   3, 224
+    32 00000D0D 0F807F8003E0        <2>     db  15, 128, 127, 128,   3, 224
+    33 00000D13 0F803FC003E0        <2>     db  15, 128,  63, 192,   3, 224
+    34 00000D19 0F801FE003E0        <2>     db  15, 128,  31, 224,   3, 224
+    35 00000D1F 0F800FE003E0        <2>     db  15, 128,  15, 224,   3, 224
+    36 00000D25 0F800FF003E0        <2>     db  15, 128,  15, 240,   3, 224
+    37 00000D2B 0F8007F803E0        <2>     db  15, 128,   7, 248,   3, 224
+    38 00000D31 0F8003FC03E0        <2>     db  15, 128,   3, 252,   3, 224
+    39 00000D37 0F8003FC03E0        <2>     db  15, 128,   3, 252,   3, 224
+    40 00000D3D 0F8001FE03E0        <2>     db  15, 128,   1, 254,   3, 224
+    41 00000D43 0F8000FF03E0        <2>     db  15, 128,   0, 255,   3, 224
+    42 00000D49 0F80007F03E0        <2>     db  15, 128,   0, 127,   3, 224
+    43 00000D4F 0F80007F83E0        <2>     db  15, 128,   0, 127, 131, 224
+    44 00000D55 0F80003FC3E0        <2>     db  15, 128,   0,  63, 195, 224
+    45 00000D5B 0F80001FE3E0        <2>     db  15, 128,   0,  31, 227, 224
+    46 00000D61 0F80001FE3E0        <2>     db  15, 128,   0,  31, 227, 224
+    47 00000D67 0F80000FF3E0        <2>     db  15, 128,   0,  15, 243, 224
+    48 00000D6D 0F800007FBE0        <2>     db  15, 128,   0,   7, 251, 224
+    49 00000D73 0F800003FBE0        <2>     db  15, 128,   0,   3, 251, 224
+    50 00000D79 0F800003FFE0        <2>     db  15, 128,   0,   3, 255, 224
+    51 00000D7F 0F800001FFE0        <2>     db  15, 128,   0,   1, 255, 224
+    52 00000D85 0F800000FFE0        <2>     db  15, 128,   0,   0, 255, 224
+    53 00000D8B 0F800000FFE0        <2>     db  15, 128,   0,   0, 255, 224
+    54 00000D91 0F8000007FE0        <2>     db  15, 128,   0,   0, 127, 224
+    55 00000D97 0F8000003FE0        <2>     db  15, 128,   0,   0,  63, 224
+    56 00000D9D 0F8000003FE0        <2>     db  15, 128,   0,   0,  63, 224
+    57 00000DA3 0F8000001FE0        <2>     db  15, 128,   0,   0,  31, 224
+    58 00000DA9 0F8000000FE0        <2>     db  15, 128,   0,   0,  15, 224
+    59 00000DAF 0F80000007E0        <2>     db  15, 128,   0,   0,   7, 224
+    60 00000DB5 0F80000007E0        <2>     db  15, 128,   0,   0,   7, 224
+    61 00000DBB 0F80000003E0        <2>     db  15, 128,   0,   0,   3, 224
+    62 00000DC1 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    63 00000DC7 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    64 00000DCD 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    65 00000DD3 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    66 00000DD9 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    67 00000DDF 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    68 00000DE5 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    69                              <2>     ; y
+    70 00000DEB 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    71 00000DF1 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    72 00000DF7 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    73 00000DFD 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    74 00000E03 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    75 00000E09 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    76 00000E0F 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    77 00000E15 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    78 00000E1B 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    79 00000E21 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    80 00000E27 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    81 00000E2D 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    82 00000E33 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    83 00000E39 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    84 00000E3F 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    85 00000E45 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    86 00000E4B 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    87 00000E51 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    88 00000E57 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    89 00000E5D 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+    90 00000E63 0F80000003E0        <2>     db  15, 128,   0,   0,   3, 224
+    91 00000E69 0FC0000007E0        <2>     db  15, 192,   0,   0,   7, 224
+    92 00000E6F 0FC000000FE0        <2>     db  15, 192,   0,   0,  15, 224
+    93 00000E75 0FE000000FE0        <2>     db  15, 224,   0,   0,  15, 224
+    94 00000E7B 0FF000001FE0        <2>     db  15, 240,   0,   0,  31, 224
+    95 00000E81 07F000003FC0        <2>     db   7, 240,   0,   0,  63, 192
+    96 00000E87 07F800007F80        <2>     db   7, 248,   0,   0, 127, 128
+    97 00000E8D 03FC00007F80        <2>     db   3, 252,   0,   0, 127, 128
+    98 00000E93 01FC0000FF00        <2>     db   1, 252,   0,   0, 255,   0
+    99 00000E99 01FE0001FE00        <2>     db   1, 254,   0,   1, 254,   0
+   100 00000E9F 00FF0003FC00        <2>     db   0, 255,   0,   3, 252,   0
+   101 00000EA5 007F0003FC00        <2>     db   0, 127,   0,   3, 252,   0
+   102 00000EAB 007F8007F800        <2>     db   0, 127, 128,   7, 248,   0
+   103 00000EB1 003FC00FF000        <2>     db   0,  63, 192,  15, 240,   0
+   104 00000EB7 001FC01FE000        <2>     db   0,  31, 192,  31, 224,   0
+   105 00000EBD 001FE01FE000        <2>     db   0,  31, 224,  31, 224,   0
+   106 00000EC3 000FF03FC000        <2>     db   0,  15, 240,  63, 192,   0
+   107 00000EC9 0007F07F8000        <2>     db   0,   7, 240, 127, 128,   0
+   108 00000ECF 0007F8FF0000        <2>     db   0,   7, 248, 255,   0,   0
+   109 00000ED5 0003FCFF0000        <2>     db   0,   3, 252, 255,   0,   0
+   110 00000EDB 0001FDFE0000        <2>     db   0,   1, 253, 254,   0,   0
+   111 00000EE1 0001FFFC0000        <2>     db   0,   1, 255, 252,   0,   0
+   112 00000EE7 0000FFF80000        <2>     db   0,   0, 255, 248,   0,   0
+   113 00000EED 00007FF80000        <2>     db   0,   0, 127, 248,   0,   0
+   114 00000EF3 00007FF00000        <2>     db   0,   0, 127, 240,   0,   0
+   115 00000EF9 00003FE00000        <2>     db   0,   0,  63, 224,   0,   0
+   116 00000EFF 00003FC00000        <2>     db   0,   0,  63, 192,   0,   0
+   117 00000F05 00003FC00000        <2>     db   0,   0,  63, 192,   0,   0
+   118 00000F0B 00007F800000        <2>     db   0,   0, 127, 128,   0,   0
+   119 00000F11 0000FF000000        <2>     db   0,   0, 255,   0,   0,   0
+   120 00000F17 0001FE000000        <2>     db   0,   1, 254,   0,   0,   0
+   121 00000F1D 0001FE000000        <2>     db   0,   1, 254,   0,   0,   0
+   122 00000F23 0003FC000000        <2>     db   0,   3, 252,   0,   0,   0
+   123 00000F29 0007F8000000        <2>     db   0,   7, 248,   0,   0,   0
+   124 00000F2F 000FF0000000        <2>     db   0,  15, 240,   0,   0,   0
+   125 00000F35 000FF0000000        <2>     db   0,  15, 240,   0,   0,   0
+   126 00000F3B 001FE0000000        <2>     db   0,  31, 224,   0,   0,   0
+   127 00000F41 003FC0000000        <2>     db   0,  63, 192,   0,   0,   0
+   128 00000F47 007F80000000        <2>     db   0, 127, 128,   0,   0,   0
+   129 00000F4D 007F80000000        <2>     db   0, 127, 128,   0,   0,   0
+   130 00000F53 00FF00000000        <2>     db   0, 255,   0,   0,   0,   0
+   131 00000F59 00FE00000000        <2>     db   0, 254,   0,   0,   0,   0
+   132 00000F5F 00FC00000000        <2>     db   0, 252,   0,   0,   0,   0
+   133 00000F65 00FC00000000        <2>     db   0, 252,   0,   0,   0,   0
+   134                              <2>     ; x
+   135 00000F6B 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   136 00000F71 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   137 00000F77 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   138 00000F7D 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   139 00000F83 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   140 00000F89 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   141 00000F8F 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   142 00000F95 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   143 00000F9B 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   144 00000FA1 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   145 00000FA7 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   146 00000FAD 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   147 00000FB3 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   148 00000FB9 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   149 00000FBF 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   150 00000FC5 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   151 00000FCB 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   152 00000FD1 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   153 00000FD7 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   154 00000FDD 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   155 00000FE3 0F80000003E0        <2>     db  15, 128,   0,   0,   3, 224
+   156 00000FE9 0FC0000007E0        <2>     db  15, 192,   0,   0,   7, 224
+   157 00000FEF 0FE000000FE0        <2>     db  15, 224,   0,   0,  15, 224
+   158 00000FF5 0FF000001FE0        <2>     db  15, 240,   0,   0,  31, 224
+   159 00000FFB 0FF800003FE0        <2>     db  15, 248,   0,   0,  63, 224
+   160 00001001 07FC00007FC0        <2>     db   7, 252,   0,   0, 127, 192
+   161 00001007 03FE0000FF80        <2>     db   3, 254,   0,   0, 255, 128
+   162 0000100D 01FF0001FF00        <2>     db   1, 255,   0,   1, 255,   0
+   163 00001013 00FFC007FE00        <2>     db   0, 255, 192,   7, 254,   0
+   164 00001019 007FE00FFC00        <2>     db   0, 127, 224,  15, 252,   0
+   165 0000101F 003FF01FF800        <2>     db   0,  63, 240,  31, 248,   0
+   166 00001025 001FF83FF000        <2>     db   0,  31, 248,  63, 240,   0
+   167 0000102B 000FFC7FE000        <2>     db   0,  15, 252, 127, 224,   0
+   168 00001031 0003FEFF8000        <2>     db   0,   3, 254, 255, 128,   0
+   169 00001037 0001FFFF0000        <2>     db   0,   1, 255, 255,   0,   0
+   170 0000103D 0000FFFE0000        <2>     db   0,   0, 255, 254,   0,   0
+   171 00001043 00007FFC0000        <2>     db   0,   0, 127, 252,   0,   0
+   172 00001049 00003FF80000        <2>     db   0,   0,  63, 248,   0,   0
+   173 0000104F 00001FF00000        <2>     db   0,   0,  31, 240,   0,   0
+   174 00001055 00003FF80000        <2>     db   0,   0,  63, 248,   0,   0
+   175 0000105B 00007FFC0000        <2>     db   0,   0, 127, 252,   0,   0
+   176 00001061 0000FFFE0000        <2>     db   0,   0, 255, 254,   0,   0
+   177 00001067 0001FFFF0000        <2>     db   0,   1, 255, 255,   0,   0
+   178 0000106D 0003FEFF8000        <2>     db   0,   3, 254, 255, 128,   0
+   179 00001073 000FFC7FE000        <2>     db   0,  15, 252, 127, 224,   0
+   180 00001079 001FF83FF000        <2>     db   0,  31, 248,  63, 240,   0
+   181 0000107F 003FF01FF800        <2>     db   0,  63, 240,  31, 248,   0
+   182 00001085 007FE00FFC00        <2>     db   0, 127, 224,  15, 252,   0
+   183 0000108B 00FFC007FE00        <2>     db   0, 255, 192,   7, 254,   0
+   184 00001091 01FF0001FF00        <2>     db   1, 255,   0,   1, 255,   0
+   185 00001097 03FE0000FF80        <2>     db   3, 254,   0,   0, 255, 128
+   186 0000109D 07FC00007FC0        <2>     db   7, 252,   0,   0, 127, 192
+   187 000010A3 0FF800003FE0        <2>     db  15, 248,   0,   0,  63, 224
+   188 000010A9 0FF000001FE0        <2>     db  15, 240,   0,   0,  31, 224
+   189 000010AF 0FE000000FE0        <2>     db  15, 224,   0,   0,  15, 224
+   190 000010B5 0FC0000007E0        <2>     db  15, 192,   0,   0,   7, 224
+   191 000010BB 0F80000003E0        <2>     db  15, 128,   0,   0,   3, 224
+   192 000010C1 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   193 000010C7 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   194 000010CD 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   195 000010D3 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   196 000010D9 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   197 000010DF 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   198 000010E5 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   199                              <2>     ; O
+   200 000010EB 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   201 000010F1 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   202 000010F7 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   203 000010FD 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   204 00001103 0000FFF80000        <2>     db   0,   0, 255, 248,   0,   0
+   205 00001109 0003FFFE0000        <2>     db   0,   3, 255, 254,   0,   0
+   206 0000110F 000FFFFF8000        <2>     db   0,  15, 255, 255, 128,   0
+   207 00001115 001FFFFFC000        <2>     db   0,  31, 255, 255, 192,   0
+   208 0000111B 003FFFFFE000        <2>     db   0,  63, 255, 255, 224,   0
+   209 00001121 007FF8FFF000        <2>     db   0, 127, 248, 255, 240,   0
+   210 00001127 00FFE03FF800        <2>     db   0, 255, 224,  63, 248,   0
+   211 0000112D 01FF800FFC00        <2>     db   1, 255, 128,  15, 252,   0
+   212 00001133 03FF0007FE00        <2>     db   3, 255,   0,   7, 254,   0
+   213 00001139 03FC0001FE00        <2>     db   3, 252,   0,   1, 254,   0
+   214 0000113F 07F80000FF00        <2>     db   7, 248,   0,   0, 255,   0
+   215 00001145 07F80000FF00        <2>     db   7, 248,   0,   0, 255,   0
+   216 0000114B 0FF000007F80        <2>     db  15, 240,   0,   0, 127, 128
+   217 00001151 0FE000003F80        <2>     db  15, 224,   0,   0,  63, 128
+   218 00001157 1FE000003FC0        <2>     db  31, 224,   0,   0,  63, 192
+   219 0000115D 1FC000001FC0        <2>     db  31, 192,   0,   0,  31, 192
+   220 00001163 1FC000001FC0        <2>     db  31, 192,   0,   0,  31, 192
+   221 00001169 1F8000000FC0        <2>     db  31, 128,   0,   0,  15, 192
+   222 0000116F 3F8000000FE0        <2>     db  63, 128,   0,   0,  15, 224
+   223 00001175 3F00000007E0        <2>     db  63,   0,   0,   0,   7, 224
+   224 0000117B 3F00000007E0        <2>     db  63,   0,   0,   0,   7, 224
+   225 00001181 3F00000007E0        <2>     db  63,   0,   0,   0,   7, 224
+   226 00001187 3F00000007E0        <2>     db  63,   0,   0,   0,   7, 224
+   227 0000118D 3E00000003E0        <2>     db  62,   0,   0,   0,   3, 224
+   228 00001193 3E00000003E0        <2>     db  62,   0,   0,   0,   3, 224
+   229 00001199 3E00000003E0        <2>     db  62,   0,   0,   0,   3, 224
+   230 0000119F 3E00000003E0        <2>     db  62,   0,   0,   0,   3, 224
+   231 000011A5 3E00000003E0        <2>     db  62,   0,   0,   0,   3, 224
+   232 000011AB 3E00000003E0        <2>     db  62,   0,   0,   0,   3, 224
+   233 000011B1 3E00000003E0        <2>     db  62,   0,   0,   0,   3, 224
+   234 000011B7 3F00000007E0        <2>     db  63,   0,   0,   0,   7, 224
+   235 000011BD 3F00000007E0        <2>     db  63,   0,   0,   0,   7, 224
+   236 000011C3 3F00000007E0        <2>     db  63,   0,   0,   0,   7, 224
+   237 000011C9 3F00000007E0        <2>     db  63,   0,   0,   0,   7, 224
+   238 000011CF 3F8000000FE0        <2>     db  63, 128,   0,   0,  15, 224
+   239 000011D5 1F8000000FC0        <2>     db  31, 128,   0,   0,  15, 192
+   240 000011DB 1FC000001FC0        <2>     db  31, 192,   0,   0,  31, 192
+   241 000011E1 1FC000001FC0        <2>     db  31, 192,   0,   0,  31, 192
+   242 000011E7 1FE000003FC0        <2>     db  31, 224,   0,   0,  63, 192
+   243 000011ED 0FE000003F80        <2>     db  15, 224,   0,   0,  63, 128
+   244 000011F3 0FF000007F80        <2>     db  15, 240,   0,   0, 127, 128
+   245 000011F9 07F80000FF00        <2>     db   7, 248,   0,   0, 255,   0
+   246 000011FF 07F80000FF00        <2>     db   7, 248,   0,   0, 255,   0
+   247 00001205 03FC0001FE00        <2>     db   3, 252,   0,   1, 254,   0
+   248 0000120B 03FF0007FE00        <2>     db   3, 255,   0,   7, 254,   0
+   249 00001211 01FF800FFC00        <2>     db   1, 255, 128,  15, 252,   0
+   250 00001217 00FFE03FF800        <2>     db   0, 255, 224,  63, 248,   0
+   251 0000121D 007FF8FFF000        <2>     db   0, 127, 248, 255, 240,   0
+   252 00001223 003FFFFFE000        <2>     db   0,  63, 255, 255, 224,   0
+   253 00001229 001FFFFFC000        <2>     db   0,  31, 255, 255, 192,   0
+   254 0000122F 000FFFFF8000        <2>     db   0,  15, 255, 255, 128,   0
+   255 00001235 0003FFFE0000        <2>     db   0,   3, 255, 254,   0,   0
+   256 0000123B 0000FFF80000        <2>     db   0,   0, 255, 248,   0,   0
+   257 00001241 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   258 00001247 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   259 0000124D 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   260 00001253 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   261 00001259 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   262 0000125F 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   263 00001265 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   264                              <2>     ; S
+   265 0000126B 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   266 00001271 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   267 00001277 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   268 0000127D 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   269 00001283 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   270 00001289 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   271 0000128F 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   272 00001295 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   273 0000129B 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   274 000012A1 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   275 000012A7 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   276 000012AD 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   277 000012B3 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   278 000012B9 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   279 000012BF 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   280 000012C5 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   281 000012CB 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   282 000012D1 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   283 000012D7 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   284 000012DD 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   285 000012E3 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   286 000012E9 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   287 000012EF 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   288 000012F5 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   289 000012FB 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   290 00001301 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   291 00001307 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   292 0000130D 0F8000000000        <2>     db  15, 128,   0,   0,   0,   0
+   293 00001313 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   294 00001319 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   295 0000131F 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   296 00001325 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   297 0000132B 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   298 00001331 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   299 00001337 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   300 0000133D 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   301 00001343 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   302 00001349 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   303 0000134F 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   304 00001355 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   305 0000135B 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   306 00001361 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   307 00001367 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   308 0000136D 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   309 00001373 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   310 00001379 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   311 0000137F 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   312 00001385 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   313 0000138B 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   314 00001391 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   315 00001397 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   316 0000139D 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   317 000013A3 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   318 000013A9 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   319 000013AF 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   320 000013B5 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   321 000013BB 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   322 000013C1 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   323 000013C7 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   324 000013CD 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   325 000013D3 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   326 000013D9 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   327 000013DF 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   328 000013E5 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   329                              <2>     ; 2
+   330 000013EB 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   331 000013F1 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   332 000013F7 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   333 000013FD 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   334 00001403 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   335 00001409 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   336 0000140F 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   337 00001415 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   338 0000141B 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   339 00001421 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   340 00001427 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   341 0000142D 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   342 00001433 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   343 00001439 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   344 0000143F 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   345 00001445 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   346 0000144B 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   347 00001451 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   348 00001457 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   349 0000145D 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   350 00001463 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   351 00001469 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   352 0000146F 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   353 00001475 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   354 0000147B 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   355 00001481 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   356 00001487 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   357 0000148D 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   358 00001493 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   359 00001499 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   360 0000149F 0000000003E0        <2>     db   0,   0,   0,   0,   3, 224
+   361 000014A5 000000000FE0        <2>     db   0,   0,   0,   0,  15, 224
+   362 000014AB 000000001FE0        <2>     db   0,   0,   0,   0,  31, 224
+   363 000014B1 000000007FE0        <2>     db   0,   0,   0,   0, 127, 224
+   364 000014B7 00000000FFE0        <2>     db   0,   0,   0,   0, 255, 224
+   365 000014BD 00000003FFC0        <2>     db   0,   0,   0,   3, 255, 192
+   366 000014C3 0000000FFF00        <2>     db   0,   0,   0,  15, 255,   0
+   367 000014C9 0000001FFE00        <2>     db   0,   0,   0,  31, 254,   0
+   368 000014CF 0000007FF800        <2>     db   0,   0,   0, 127, 248,   0
+   369 000014D5 000000FFF000        <2>     db   0,   0,   0, 255, 240,   0
+   370 000014DB 000003FFC000        <2>     db   0,   0,   3, 255, 192,   0
+   371 000014E1 000007FF0000        <2>     db   0,   0,   7, 255,   0,   0
+   372 000014E7 00001FFE0000        <2>     db   0,   0,  31, 254,   0,   0
+   373 000014ED 00003FF80000        <2>     db   0,   0,  63, 248,   0,   0
+   374 000014F3 0000FFF00000        <2>     db   0,   0, 255, 240,   0,   0
+   375 000014F9 0001FFC00000        <2>     db   0,   1, 255, 192,   0,   0
+   376 000014FF 0007FF800000        <2>     db   0,   7, 255, 128,   0,   0
+   377 00001505 001FFE000000        <2>     db   0,  31, 254,   0,   0,   0
+   378 0000150B 003FFC000000        <2>     db   0,  63, 252,   0,   0,   0
+   379 00001511 00FFF0000000        <2>     db   0, 255, 240,   0,   0,   0
+   380 00001517 01FFE0000000        <2>     db   1, 255, 224,   0,   0,   0
+   381 0000151D 07FF80000000        <2>     db   7, 255, 128,   0,   0,   0
+   382 00001523 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   383 00001529 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   384 0000152F 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   385 00001535 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   386 0000153B 0FFFFFFFFFE0        <2>     db  15, 255, 255, 255, 255, 224
+   387 00001541 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   388 00001547 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   389 0000154D 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   390 00001553 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   391 00001559 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   392 0000155F 000000000000        <2>     db   0,   0,   0,   0,   0,   0
+   393 00001565 000000000000        <2>     db   0,   0,   0,   0,   0,   0
    129                                  
    130                                  ; ---- the real -> protected mode switch --------------------------------------
    131                                  switch_to_pm:
-   132 00000EDE FA                          cli                                  ; real-mode IVT is about to be invalid
-   133 00000EDF 0F20C0                      mov eax, cr0
-   134 00000EE2 0C01                        or  al, 1                            ; set PE (Protection Enable)
-   135 00000EE4 0F22C0                      mov cr0, eax
-   136 00000EE7 EA[EC0E]0800                jmp CODE_SEG:pm_entry                ; far jump: reload CS=0x08, flush pipeline
+   132 0000156B FA                          cli                                  ; real-mode IVT is about to be invalid
+   133 0000156C 0F20C0                      mov eax, cr0
+   134 0000156F 0C01                        or  al, 1                            ; set PE (Protection Enable)
+   135 00001571 0F22C0                      mov cr0, eax
+   136 00001574 EA[7915]0800                jmp CODE_SEG:pm_entry                ; far jump: reload CS=0x08, flush pipeline
    137                                  
    138                                  [bits 32]
    139                                  pm_entry:
-   140 00000EEC 66B81000                    mov ax, DATA_SEG                     ; reload data selectors (flat data segment)
-   141 00000EF0 8ED8                        mov ds, ax
-   142 00000EF2 8EC0                        mov es, ax
-   143 00000EF4 8EE0                        mov fs, ax
-   144 00000EF6 8EE8                        mov gs, ax
-   145 00000EF8 8ED0                        mov ss, ax
-   146 00000EFA BC00000900                  mov esp, 0x90000                     ; 32-bit stack
+   140 00001579 66B81000                    mov ax, DATA_SEG                     ; reload data selectors (flat data segment)
+   141 0000157D 8ED8                        mov ds, ax
+   142 0000157F 8EC0                        mov es, ax
+   143 00001581 8EE0                        mov fs, ax
+   144 00001583 8EE8                        mov gs, ax
+   145 00001585 8ED0                        mov ss, ax
+   146 00001587 BC00000900                  mov esp, 0x90000                     ; 32-bit stack
    147                                  
-   148 00000EFF BE00000100                  mov esi, KERNEL_SEG*16               ; scan the loaded kernel for the Multiboot header
-   149 00000F04 8B0D[CD000000]              mov ecx, [file_size]
-   150 00000F0A C1E902                      shr ecx, 2                           ; dwords
-   151 00000F0D 81F900080000                cmp ecx, 2048                        ; ...within the first 8 KB
-   152 00000F13 7605                        jbe .have_len
-   153 00000F15 B900080000                  mov ecx, 2048
+   148 0000158C BE00000100                  mov esi, KERNEL_SEG*16               ; scan the loaded kernel for the Multiboot header
+   149 00001591 8B0D[CD000000]              mov ecx, [file_size]
+   150 00001597 C1E902                      shr ecx, 2                           ; dwords
+   151 0000159A 81F900080000                cmp ecx, 2048                        ; ...within the first 8 KB
+   152 000015A0 7605                        jbe .have_len
+   153 000015A2 B900080000                  mov ecx, 2048
    154                                  .have_len:
    155                                  .scan:
-   156 00000F1A 813E02B0AD1B                cmp dword [esi], 0x1BADB002
-   157 00000F20 740B                        je .multiboot
-   158 00000F22 83C604                      add esi, 4
-   159 00000F25 49                          dec ecx
-   160 00000F26 75F2                        jnz .scan
-   161 00000F28 E9(00000100)                jmp KERNEL_SEG*16                    ; no header -> plain binary kernel (our C kernel)
+   156 000015A7 813E02B0AD1B                cmp dword [esi], 0x1BADB002
+   157 000015AD 740B                        je .multiboot
+   158 000015AF 83C604                      add esi, 4
+   159 000015B2 49                          dec ecx
+   160 000015B3 75F2                        jnz .scan
+   161 000015B5 E9(00000100)                jmp KERNEL_SEG*16                    ; no header -> plain binary kernel (our C kernel)
    162                                  
    163                                  .multiboot:
-   164 00000F2D E80F000000                  call build_mb_info
-   165 00000F32 B802B0AD2B                  mov eax, 0x2BADB002                  ; the handoff magic
-   166 00000F37 BB[DC0F0000]                mov ebx, mb_info                     ; -> the info structure
-   167 00000F3C E9(00000100)                jmp KERNEL_SEG*16
+   164 000015BA E80F000000                  call build_mb_info
+   165 000015BF B802B0AD2B                  mov eax, 0x2BADB002                  ; the handoff magic
+   166 000015C4 BB[68160000]                mov ebx, mb_info                     ; -> the info structure
+   167 000015C9 E9(00000100)                jmp KERNEL_SEG*16
    168                                  
    169                                  ; turn the E820 map into a Multiboot info struct + mmap
    170                                  build_mb_info:
-   171 00000F41 BE[F2080000]                mov esi, e820_map
-   172 00000F46 BF[36100000]                mov edi, mb_mmap
-   173 00000F4B 0FB70D[F0080000]            movzx ecx, word [e820_count]
+   171 000015CE BE[F2080000]                mov esi, e820_map
+   172 000015D3 BF[C2160000]                mov edi, mb_mmap
+   173 000015D8 0FB70D[F0080000]            movzx ecx, word [e820_count]
    174                                  .mm:
-   175 00000F52 C70714000000                mov dword [edi], 20                  ; size (entry bytes excluding this field)
-   176 00000F58 8B06                        mov eax, [esi];    mov [edi+4],  eax ; base low
-   177 00000F5A 8B4604                      mov eax, [esi+4];  mov [edi+8],  eax ; base high
-   178 00000F5D 8B4608                      mov eax, [esi+8];  mov [edi+12], eax ; length low
-   179 00000F60 8B460C                      mov eax, [esi+12]; mov [edi+16], eax ; length high
-   180 00000F63 8B4610                      mov eax, [esi+16]; mov [edi+20], eax ; type
-   181 00000F66 83C618                      add esi, 24
-   182 00000F69 83C718                      add edi, 24
-   183 00000F6C 49                          dec ecx
-   184 00000F6D 75E3                        jnz .mm
+   175 000015DF C70714000000                mov dword [edi], 20                  ; size (entry bytes excluding this field)
+   176 000015E5 8B06                        mov eax, [esi];    mov [edi+4],  eax ; base low
+   177 000015E7 8B4604                      mov eax, [esi+4];  mov [edi+8],  eax ; base high
+   178 000015EA 8B4608                      mov eax, [esi+8];  mov [edi+12], eax ; length low
+   179 000015ED 8B460C                      mov eax, [esi+12]; mov [edi+16], eax ; length high
+   180 000015F0 8B4610                      mov eax, [esi+16]; mov [edi+20], eax ; type
+   181 000015F3 83C618                      add esi, 24
+   182 000015F6 83C718                      add edi, 24
+   183 000015F9 49                          dec ecx
+   184 000015FA 75E3                        jnz .mm
    185                                  
-   186 00000F6F 0FB705[F0080000]            movzx eax, word [e820_count]
-   187 00000F76 6BC018                      imul eax, eax, 24
-   188 00000F79 A3[08100000]                mov [mb_info+44], eax                ; mmap_length
-   189 00000F7E C705[0C100000]-             mov dword [mb_info+48], mb_mmap      ; mmap_addr
-   189 00000F84 [36100000]         
-   190 00000F88 C705[DC0F0000]4100-         mov dword [mb_info], 0x41            ; flags: mem (bit0) + mmap (bit6)
-   190 00000F90 0000               
-   191 00000F92 C705[E00F0000]8002-         mov dword [mb_info+4], 640           ; mem_lower (KB)
-   191 00000F9A 0000               
+   186 000015FC 0FB705[F0080000]            movzx eax, word [e820_count]
+   187 00001603 6BC018                      imul eax, eax, 24
+   188 00001606 A3[94160000]                mov [mb_info+44], eax                ; mmap_length
+   189 0000160B C705[98160000]-             mov dword [mb_info+48], mb_mmap      ; mmap_addr
+   189 00001611 [C2160000]         
+   190 00001615 C705[68160000]4100-         mov dword [mb_info], 0x41            ; flags: mem (bit0) + mmap (bit6)
+   190 0000161D 0000               
+   191 0000161F C705[6C160000]8002-         mov dword [mb_info+4], 640           ; mem_lower (KB)
+   191 00001627 0000               
    192                                  
-   193 00000F9C C705[E40F0000]0000-         mov dword [mb_info+8], 0             ; mem_upper = usable RAM at 1 MB, in KB
-   193 00000FA4 0000               
-   194 00000FA6 BE[F2080000]                mov esi, e820_map
-   195 00000FAB 0FB70D[F0080000]            movzx ecx, word [e820_count]
+   193 00001629 C705[70160000]0000-         mov dword [mb_info+8], 0             ; mem_upper = usable RAM at 1 MB, in KB
+   193 00001631 0000               
+   194 00001633 BE[F2080000]                mov esi, e820_map
+   195 00001638 0FB70D[F0080000]            movzx ecx, word [e820_count]
    196                                  .mu:
-   197 00000FB2 813E00001000                cmp dword [esi], 0x00100000
-   198 00000FB8 7519                        jne .mu_next
-   199 00000FBA 837E0400                    cmp dword [esi+4], 0
-   200 00000FBE 7513                        jne .mu_next
-   201 00000FC0 837E1001                    cmp dword [esi+16], 1
-   202 00000FC4 750D                        jne .mu_next
-   203 00000FC6 8B4608                      mov eax, [esi+8]
-   204 00000FC9 C1E80A                      shr eax, 10
-   205 00000FCC A3[E40F0000]                mov [mb_info+8], eax
-   206 00000FD1 EB06                        jmp .mu_done
+   197 0000163F 813E00001000                cmp dword [esi], 0x00100000
+   198 00001645 7519                        jne .mu_next
+   199 00001647 837E0400                    cmp dword [esi+4], 0
+   200 0000164B 7513                        jne .mu_next
+   201 0000164D 837E1001                    cmp dword [esi+16], 1
+   202 00001651 750D                        jne .mu_next
+   203 00001653 8B4608                      mov eax, [esi+8]
+   204 00001656 C1E80A                      shr eax, 10
+   205 00001659 A3[70160000]                mov [mb_info+8], eax
+   206 0000165E EB06                        jmp .mu_done
    207                                  .mu_next:
-   208 00000FD3 83C618                      add esi, 24
-   209 00000FD6 49                          dec ecx
-   210 00000FD7 75D9                        jnz .mu
+   208 00001660 83C618                      add esi, 24
+   209 00001663 49                          dec ecx
+   210 00001664 75D9                        jnz .mu
    211                                  .mu_done:
-   212 00000FD9 C3                          ret
+   212 00001666 C3                          ret
    213                                  
-   214 00000FDA 90<rep 2h>              align 4
-   215 00000FDC 00<rep 5Ah>             mb_info: times 90 db 0
-   216 00001036 00<rep 240h>            mb_mmap: times MAX_E820*24 db 0
+   214 00001667 90                      align 4
+   215 00001668 00<rep 5Ah>             mb_info: times 90 db 0
+   216 000016C2 00<rep 240h>            mb_mmap: times MAX_E820*24 db 0
