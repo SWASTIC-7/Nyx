@@ -98,7 +98,7 @@ sudo apt install nasm qemu-system-x86 mtools dosfstools make python3 gdb
 
 Things that helped while building Nyx:
 
-- **Blog — _Before the Operating System: Booting Nyx_** — the full write-up of how this was built, step by step. <!-- add link -->
+- [Blog — _Before the Operating System: Booting Nyx](https://swastic-7.github.io/sw4sy-Bl0gs/before-the-operating-system-booting-nyx) — the full write-up of how this was built, step by step. <!-- add link -->
 - [OSDev Wiki](https://wiki.osdev.org/) — bootloaders, GDT, A20, protected mode, VGA
 - [Multiboot Specification](https://www.gnu.org/software/grub/manual/multiboot/multiboot.html)
 - [Microsoft FAT specification](https://download.microsoft.com/download/1/6/1/161ba512-40e2-4cc9-843a-923143f3456c/fatgen103.doc)
