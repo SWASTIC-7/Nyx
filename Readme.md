@@ -21,6 +21,8 @@ BIOS ─▶ MBR (stage 1, LBA) ─▶ Stage 2
           └─ Multiboot handoff ─▶ kernel
 ```
 
+Read the complete blog on writing bootloader from scratch [here](https://swastic-7.github.io/sw4sy-Bl0gs/before-the-operating-system-booting-nyx)
+
 **Features**
 - Two-stage boot: a 512-byte MBR that loads a larger Stage 2 via LBA (`int 13h/AH=42h`)
 - FAT12 **and** FAT32 drivers with build-time auto-detection
